@@ -1,15 +1,15 @@
 <?php
 /**
- * BULLETPROOF API FOR REACT APP (SNIPPET SAFE VERSION V4)
- * 1. Removed <?php tag (for Snippets)
- * 2. Renamed ALL functions to avoid "Already Exists" errors
- * 3. Added ROLE to login response
- * 4. Added WHOLESALE PRICE fetch
- * 5. Added RAW PRICE to ignore "Please Login" plugin filters
+ * Plugin Name: WCS Headless Bridge
+ * Plugin URI: https://github.com/yashvachhan1/hype-next-js
+ * Description: High-performance headless bridge for WooCommerce and Next.js synchronization.
+ * Version: 1.0.0
+ * Author: WCS
  */
 
 // 0. CORS HEADERS (URGENT FIX FOR CREDENTIALS)
 add_action( 'rest_api_init', function() {
+    // Override default WP REST CORS
     remove_filter( 'rest_pre_serve_request', 'rest_send_cors_headers' );
     add_filter( 'rest_pre_serve_request', function( $value ) {
         $origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '*';
@@ -20,7 +20,57 @@ add_action( 'rest_api_init', function() {
         header("Access-Control-Expose-Headers: Cart-Token, X-WP-Nonce");
         return $value;
     });
+
+    // SETTINGS & PERFORMANCE
+    @ini_set( 'memory_limit', '2048M' ); 
+    @ini_set( 'max_execution_time', 1200 ); 
+    @set_time_limit( 1200 );
+
+    // ROUTE REGISTRATION
+    $routes = array(
+        '/app-data' => 'wcs_get_headless_data_safe',
+        '/login' => 'wcs_login_user_safe',
+        '/brands' => 'wcs_get_brands_safe',
+        '/products' => 'wcs_get_products_safe',
+        '/checkout' => 'wcs_create_order_safe',
+        '/register' => 'wcs_register_user_safe',
+        '/orders' => 'wcs_get_user_orders_safe',
+        '/user-details' => 'wcs_get_user_details_safe',
+        '/update-user' => 'wcs_update_user_details_safe',
+        '/refunds' => 'wcs_get_user_refunds_safe',
+        '/form' => 'wcs_get_form_data_safe',
+        '/form/submit' => 'wcs_handle_form_submit_safe',
+        '/search' => 'wcs_turbo_search'
+    );
+
+    foreach ( $routes as $route => $callback ) {
+        $method = 'GET';
+        if ( in_array( $route, ['/login', '/checkout', '/register', '/update-user', '/form/submit'] ) ) {
+            $method = 'POST';
+        }
+        
+        register_rest_route( 'wcs/v1', $route, array(
+            'methods'  => $method,
+            'callback' => $callback,
+            'permission_callback' => 'wcs_check_api_permission',
+        ));
+    }
 }, 15 );
+
+// 0.1 MODULAR LOADER
+$wcs_api_dir = plugin_dir_path(__FILE__);
+$modular_files = [
+    'wcs-api-core.php', 'wcs-api-settings.php', 'wcs-api-menu.php',
+    'wcs-api-home-trending.php', 'wcs-api-home-new-arrivals.php', 'wcs-api-home-bestsellers.php',
+    'wcs-api-shop.php', 'wcs-api-product.php', 'wcs-api-login.php', 
+    'wcs-api-register.php', 'wcs-api-account.php', 'wcs-api-cart.php', 
+    'wcs-api-checkout.php', 'wcs-api-wishlist.php', 'wcs-api-contact.php'
+];
+foreach($modular_files as $file) {
+    if (file_exists($wcs_api_dir . $file) && $file !== basename(__FILE__)) {
+        require_once $wcs_api_dir . $file;
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     http_response_code(200);
@@ -37,8 +87,7 @@ if ( ! function_exists( 'wcs_shutdown_handler_safe' ) ) {
             http_response_code( 500 );
             echo json_encode( array( 
                 'success' => false,
-                'code' => 'fatal_server_error', 
-                'message' => 'The server encountered an unexpected error and could not complete your request.', 
+                'message' => 'The server encountered a fatal error.', 
                 'debug' => (defined('WP_DEBUG') && WP_DEBUG) ? ($error['message'] . ' on line ' . $error['line']) : 'Internal Server Error'
             ));
             exit;
@@ -63,45 +112,9 @@ if ( ! function_exists( 'wcs_check_api_permission' ) ) {
         if ( $user_id_param || strpos($route, '/login') !== false || strpos($route, '/register') !== false || strpos($route, '/checkout') !== false ) {
             return true;
         }
-        return new WP_Error( 'rest_forbidden', 'You do not have permission to access this data.', array( 'status' => 403 ) );
+        return new WP_Error( 'rest_forbidden', 'Unauthorized', array( 'status' => 403 ) );
     }
 }
-add_action( 'rest_api_init', function() {
-    error_reporting(0);
-    @ini_set( 'display_errors', 0 );
-    @ini_set( 'memory_limit', '2048M' ); 
-    @ini_set( 'max_execution_time', 1200 ); 
-    @set_time_limit( 1200 );
-
-    // MAP NEW FUNCTION NAMES HERE
-    $routes = array(
-        '/app-data' => 'wcs_get_headless_data_safe',
-        '/login' => 'wcs_login_user_safe',
-        '/brands' => 'wcs_get_brands_safe',
-        '/products' => 'wcs_get_products_safe',
-        '/checkout' => 'wcs_create_order_safe',
-        '/register' => 'wcs_register_user_safe',
-        '/orders' => 'wcs_get_user_orders_safe',
-        '/user-details' => 'wcs_get_user_details_safe',
-        '/update-user' => 'wcs_update_user_details_safe',
-        '/refunds' => 'wcs_get_user_refunds_safe',
-        '/form' => 'wcs_get_form_data_safe',
-        '/form/submit' => 'wcs_handle_form_submit_safe'
-    );
-
-    foreach ( $routes as $route => $callback ) {
-        $method = 'GET';
-        if ( in_array( $route, ['/login', '/checkout', '/register', '/update-user', '/form/submit'] ) ) {
-            $method = 'POST';
-        }
-        
-        register_rest_route( 'wcs/v1', $route, array(
-            'methods'  => $method,
-            'callback' => $callback,
-            'permission_callback' => 'wcs_check_api_permission',
-        ));
-    }
-});
 
 // --- RENAMED FUNCTIONS BELOW ---
 
@@ -644,32 +657,10 @@ if ( ! function_exists( 'wcs_login_user_safe' ) ) {
             )
         ), 200 );
     }
-    // --- SEARCH ENDPOINT (TURBO) ---
-    add_action('rest_api_init', function() {
-        // 1. LOGIN
-        register_rest_route( 'wcs/v1', '/login', array(
-            'methods'  => 'POST',
-            'callback' => 'wcs_login_user_safe',
-            'permission_callback' => 'wcs_check_api_permission'
-        ));
-
-        // 2. APP DATA (Headless)
-        register_rest_route( 'wcs/v1', '/app-data', array(
-            'methods'  => 'GET',
-            'callback' => 'wcs_get_headless_data_safe',
-            'permission_callback' => 'wcs_check_api_permission'
-        ));
-
-        // 3. SEARCH (Turbo)
-        register_rest_route( 'wcs/v1', '/search', array(
-            'methods'  => 'GET',
-            'callback' => 'wcs_turbo_search',
-            'permission_callback' => 'wcs_check_api_permission'
-        ));
-    });
 }
 
-function wcs_turbo_search( $request ) {
+if ( ! function_exists( 'wcs_turbo_search' ) ) {
+    function wcs_turbo_search( $request ) {
     global $wpdb;
     $q = sanitize_text_field( $request->get_param( 'q' ) );
     
@@ -731,6 +722,7 @@ function wcs_turbo_search( $request ) {
     }
 
     return new WP_REST_Response( $data, 200 );
+    }
 }
 
 // --- DYNAMIC CONFIGURATION HELPERS ---
