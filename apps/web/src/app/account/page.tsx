@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import Navbar from '@/components/Navbar';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { User, Package, MapPin, LogOut, CreditCard, RefreshCcw } from 'lucide-react';
 
-export default function AccountPage() {
+function AccountContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const activeTab = searchParams ? searchParams.get('tab') || 'dashboard' : 'dashboard';
@@ -362,5 +362,17 @@ export default function AccountPage() {
                 </div>
             </div>
         </main>
+    );
+}
+
+export default function AccountPage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center bg-[#FDFDFD]">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-600"></div>
+            </div>
+        }>
+            <AccountContent />
+        </Suspense>
     );
 }
