@@ -57,21 +57,6 @@ add_action( 'rest_api_init', function() {
     }
 }, 15 );
 
-// 0.1 MODULAR LOADER
-$wcs_api_dir = plugin_dir_path(__FILE__);
-$modular_files = [
-    'wcs-api-core.php', 'wcs-api-settings.php', 'wcs-api-menu.php',
-    'wcs-api-home-trending.php', 'wcs-api-home-new-arrivals.php', 'wcs-api-home-bestsellers.php',
-    'wcs-api-shop.php', 'wcs-api-product.php', 'wcs-api-login.php', 
-    'wcs-api-register.php', 'wcs-api-account.php', 'wcs-api-cart.php', 
-    'wcs-api-checkout.php', 'wcs-api-wishlist.php', 'wcs-api-contact.php'
-];
-foreach($modular_files as $file) {
-    if (file_exists($wcs_api_dir . $file) && $file !== basename(__FILE__)) {
-        require_once $wcs_api_dir . $file;
-    }
-}
-
 if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     http_response_code(200);
     exit;
@@ -787,10 +772,24 @@ if ( ! function_exists( 'wcs_get_headless_data_safe' ) ) {
             $menu[] = array( 'id' => $term->term_id, 'name' => $term->name, 'slug' => $term->slug, 'type' => 'category', 'children' => $level2 );
         }
 
-        // 3. TURBO SQL (Products + Image Join)
-        $trending_data = wcs_get_headless_products_list_safe('trending-products');
-        $new_arrivals = wcs_get_headless_products_list_safe('new-arrivals');
-        $best_sellers = wcs_get_headless_products_list_safe('best-sellers');
+        // 3. SECURED & CACHED PRODUCT LISTS (Trending, New, Best Sellers)
+        $trending_data = get_transient('wcs_home_trending_v1');
+        if (false === $trending_data) {
+             $trending_data = wcs_get_headless_products_list_safe('trending-products');
+             set_transient('wcs_home_trending_v1', $trending_data, HOUR_IN_SECONDS);
+        }
+
+        $new_arrivals = get_transient('wcs_home_new_v1');
+        if (false === $new_arrivals) {
+             $new_arrivals = wcs_get_headless_products_list_safe('new-arrivals');
+             set_transient('wcs_home_new_v1', $new_arrivals, HOUR_IN_SECONDS);
+        }
+
+        $best_sellers = get_transient('wcs_home_best_v1');
+        if (false === $best_sellers) {
+             $best_sellers = wcs_get_headless_products_list_safe('best-sellers');
+             set_transient('wcs_home_best_v1', $best_sellers, HOUR_IN_SECONDS);
+        }
 
         // 4. BRANDS SQL (No Loop)
         // Get Term, Tax, and Image Meta in one go.
@@ -1092,22 +1091,19 @@ if ( ! function_exists( 'wcs_get_headless_products_list_safe' ) ) {
 
         $sql = "
             SELECT 
-                p.ID, p.post_title, p.post_name, p.post_date,
+                p.ID, p.post_title, p.post_name,
                 pm_price.meta_value as price,
                 pm_reg.meta_value as regular_price,
                 pm_whole.meta_value as wholesale_price,
-                pm_img_file.meta_value as image_file
+                pm_img.meta_value as thumbnail_id
             FROM {$wpdb->posts} p
             INNER JOIN {$wpdb->term_relationships} tr ON (p.ID = tr.object_id)
             INNER JOIN {$wpdb->term_taxonomy} tt ON (tr.term_taxonomy_id = tt.term_taxonomy_id)
             INNER JOIN {$wpdb->terms} t ON (tt.term_id = t.term_id)
-            -- Prices
             LEFT JOIN {$wpdb->postmeta} pm_price ON (p.ID = pm_price.post_id AND pm_price.meta_key = '_price')
             LEFT JOIN {$wpdb->postmeta} pm_reg ON (p.ID = pm_reg.post_id AND pm_reg.meta_key = '_regular_price')
             LEFT JOIN {$wpdb->postmeta} pm_whole ON (p.ID = pm_whole.post_id AND pm_whole.meta_key = 'wholesale_customer_wholesale_price')
-            -- Images (Thumbnail ID -> Attachment Post -> Attached File)
-            LEFT JOIN {$wpdb->postmeta} pm_thumb ON (p.ID = pm_thumb.post_id AND pm_thumb.meta_key = '_thumbnail_id')
-            LEFT JOIN {$wpdb->postmeta} pm_img_file ON (pm_thumb.meta_value = pm_img_file.post_id AND pm_img_file.meta_key = '_wp_attached_file')
+            LEFT JOIN {$wpdb->postmeta} pm_img ON (p.ID = pm_img.post_id AND pm_img.meta_key = '_thumbnail_id')
             WHERE p.post_type = 'product' 
             AND p.post_status = 'publish' 
             AND tt.taxonomy = 'product_cat'
@@ -1117,13 +1113,12 @@ if ( ! function_exists( 'wcs_get_headless_products_list_safe' ) ) {
         ";
         
         $results = $wpdb->get_results( $wpdb->prepare($sql, $slug) );
-        $upload_base = wp_upload_dir()['baseurl'];
-        
         $data = array();
+        
         foreach($results as $r) {
             $img = '';
-            if ( $r->image_file ) {
-                $img = ( strpos($r->image_file, 'http') === 0 ) ? $r->image_file : $upload_base . '/' . $r->image_file;
+            if ( $r->thumbnail_id ) {
+                $img = wp_get_attachment_image_url($r->thumbnail_id, 'medium');
             }
 
             $data[] = array(

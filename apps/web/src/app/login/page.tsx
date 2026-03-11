@@ -17,7 +17,7 @@ export default function LoginPage() {
         setError('');
 
         try {
-            const res = await fetch('https://mediumturquoise-porcupine-409422.hostingersite.com/wp-json/wcs/v1/login', {
+            const res = await fetch('/api/wp/wcs/v1/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include', // CRITICAL: This captures the WP Session Cookie
