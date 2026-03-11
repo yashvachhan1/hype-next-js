@@ -8,6 +8,25 @@
  * 5. Added RAW PRICE to ignore "Please Login" plugin filters
  */
 
+// 0. CORS HEADERS (URGENT FIX FOR CREDENTIALS)
+add_action( 'rest_api_init', function() {
+    remove_filter( 'rest_pre_serve_request', 'rest_send_cors_headers' );
+    add_filter( 'rest_pre_serve_request', function( $value ) {
+        $origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '*';
+        header("Access-Control-Allow-Origin: $origin");
+        header("Access-Control-Allow-Credentials: true");
+        header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
+        header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-WP-Nonce, X-WC-Store-API-Nonce, Cart-Token, user_id");
+        header("Access-Control-Expose-Headers: Cart-Token, X-WP-Nonce");
+        return $value;
+    });
+}, 15 );
+
+if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
 // 1. GLOBAL SHUTDOWN HANDLER
 if ( ! function_exists( 'wcs_shutdown_handler_safe' ) ) {
     function wcs_shutdown_handler_safe() {
@@ -15,10 +34,12 @@ if ( ! function_exists( 'wcs_shutdown_handler_safe' ) ) {
         if ( $error && in_array( $error['type'], array( E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR ) ) ) {
             if ( ob_get_length() ) ob_clean();
             header( 'Content-Type: application/json; charset=UTF-8' );
+            http_response_code( 500 );
             echo json_encode( array( 
+                'success' => false,
                 'code' => 'fatal_server_error', 
-                'message' => 'Server timeout or crash', 
-                'debug' => $error['message'] . ' on line ' . $error['line']
+                'message' => 'The server encountered an unexpected error and could not complete your request.', 
+                'debug' => (defined('WP_DEBUG') && WP_DEBUG) ? ($error['message'] . ' on line ' . $error['line']) : 'Internal Server Error'
             ));
             exit;
         }
@@ -26,6 +47,25 @@ if ( ! function_exists( 'wcs_shutdown_handler_safe' ) ) {
 }
 register_shutdown_function( 'wcs_shutdown_handler_safe' );
 
+// 1.1 PERMISSION CHECK HELPER
+if ( ! function_exists( 'wcs_check_api_permission' ) ) {
+    function wcs_check_api_permission( $request ) {
+        $public_routes = array('/app-data', '/brands', '/products', '/search', '/form');
+        $route = $request->get_route();
+        foreach($public_routes as $p) {
+            if (strpos($route, $p) !== false) return true;
+        }
+        $user_id_param = $request->get_param('user_id');
+        if ( !$user_id_param ) {
+            $params = $request->get_json_params();
+            $user_id_param = isset($params['user_id']) ? $params['user_id'] : 0;
+        }
+        if ( $user_id_param || strpos($route, '/login') !== false || strpos($route, '/register') !== false || strpos($route, '/checkout') !== false ) {
+            return true;
+        }
+        return new WP_Error( 'rest_forbidden', 'You do not have permission to access this data.', array( 'status' => 403 ) );
+    }
+}
 add_action( 'rest_api_init', function() {
     error_reporting(0);
     @ini_set( 'display_errors', 0 );
@@ -35,9 +75,7 @@ add_action( 'rest_api_init', function() {
 
     // MAP NEW FUNCTION NAMES HERE
     $routes = array(
-        '/app-data' => 'wcs_get_initial_data_safe', // Default to Initial (Light)
-        '/app-data-initial' => 'wcs_get_initial_data_safe',
-        '/app-data-secondary' => 'wcs_get_secondary_data_safe',
+        '/app-data' => 'wcs_get_headless_data_safe',
         '/login' => 'wcs_login_user_safe',
         '/brands' => 'wcs_get_brands_safe',
         '/products' => 'wcs_get_products_safe',
@@ -60,7 +98,7 @@ add_action( 'rest_api_init', function() {
         register_rest_route( 'wcs/v1', $route, array(
             'methods'  => $method,
             'callback' => $callback,
-            'permission_callback' => '__return_true',
+            'permission_callback' => 'wcs_check_api_permission',
         ));
     }
 });
@@ -591,13 +629,18 @@ if ( ! function_exists( 'wcs_login_user_safe' ) ) {
             return new WP_REST_Response( array( 'success' => false, 'message' => $user->get_error_message() ), 401 );
         }
 
+        // Generate Nonces for Headless REST 
+        wp_set_current_user($user->ID);
+        $nonce = wp_create_nonce('wp_rest');
+
         return new WP_REST_Response( array(
             'success' => true,
+            'nonce' => $nonce, // Added for Secure Next.js Session Link
             'user' => array(
                 'id' => $user->ID,
                 'name' => $user->display_name,
                 'email' => $user->user_email,
-                'role' => reset( $user->roles ) // ADDED ROLE
+                'role' => reset( $user->roles )
             )
         ), 200 );
     }
@@ -607,21 +650,21 @@ if ( ! function_exists( 'wcs_login_user_safe' ) ) {
         register_rest_route( 'wcs/v1', '/login', array(
             'methods'  => 'POST',
             'callback' => 'wcs_login_user_safe',
-            'permission_callback' => '__return_true'
+            'permission_callback' => 'wcs_check_api_permission'
         ));
 
         // 2. APP DATA (Headless)
         register_rest_route( 'wcs/v1', '/app-data', array(
             'methods'  => 'GET',
-            'callback' => 'wcs_get_initial_data_safe',
-            'permission_callback' => '__return_true'
+            'callback' => 'wcs_get_headless_data_safe',
+            'permission_callback' => 'wcs_check_api_permission'
         ));
 
         // 3. SEARCH (Turbo)
         register_rest_route( 'wcs/v1', '/search', array(
             'methods'  => 'GET',
             'callback' => 'wcs_turbo_search',
-            'permission_callback' => '__return_true'
+            'permission_callback' => 'wcs_check_api_permission'
         ));
     });
 }
@@ -690,20 +733,43 @@ function wcs_turbo_search( $request ) {
     return new WP_REST_Response( $data, 200 );
 }
 
-if ( ! function_exists( 'wcs_get_initial_data_safe' ) ) {
-    function wcs_get_initial_data_safe() {
-        // 1. CACHE (Initial Data - 1 Hour)
-        $cached_data = get_transient( 'wcs_initial_app_data_v1' );
+// --- DYNAMIC CONFIGURATION HELPERS ---
+if ( ! function_exists( 'wcs_get_api_logo' ) ) {
+    function wcs_get_api_logo() {
+        $logo = get_option( 'wcs_api_logo' );
+        if ( !$logo ) {
+            // Default to the provided logo if not set in options
+            $logo = 'https://hotpink-camel-152562.hostingersite.com/wp-content/uploads/2026/01/Group-2104-1-2.png';
+        }
+        return apply_filters( 'wcs_api_logo', $logo );
+    }
+}
+
+if ( ! function_exists( 'wcs_get_headless_data_safe' ) ) {
+    function wcs_get_headless_data_safe() {
+        // 1. CACHE (Version 8 - Ultra Fast + Wholesale Rules)
+        $cached_data = get_transient( 'wcs_headless_app_data_v8' );
         if ( false !== $cached_data ) {
-             return new WP_REST_Response( $cached_data, 200 );
+            // ETAG SUPPORT FOR SPEED
+            $etag = md5( json_encode( $cached_data ) );
+            if ( isset( $_SERVER['HTTP_IF_NONE_MATCH'] ) && trim( $_SERVER['HTTP_IF_NONE_MATCH'] ) === $etag ) {
+                header( "HTTP/1.1 304 Not Modified" );
+                exit;
+            }
+            header( "ETag: $etag" );
+            return new WP_REST_Response( $cached_data, 200 );
         }
 
         global $wpdb;
+
+        try {
 
         // 2. MENU (Optimized)
         $order = array('DEVICES', 'E-JUICES', 'COILS / PODS', 'DISPOSABLES', 'HEMP', 'NICOTINE POUCHES', 'SMOKESHOP', 'VAPE DEALS', 'KRATOM/ MASHROOM', 'BRANDS');
         $menu = array();
 
+        // 2. MENU (Reverted to Direct Lookups for Speed)
+        // fetching 500+ categories was too slow. Specific lookups are faster for small menus.
         foreach ( $order as $cat_name ) {
             if ( $cat_name === 'BRANDS' || $cat_name === 'VAPE DEALS' ) {
                 $menu[] = array( 'id' => rand(9000,9999), 'name' => $cat_name, 'type' => 'link', 'children' => array() );
@@ -713,7 +779,6 @@ if ( ! function_exists( 'wcs_get_initial_data_safe' ) ) {
             $term = get_term_by( 'name', $cat_name, 'product_cat' );
             if ( ! $term ) continue;
 
-            // Only fetch level 2 children here (Fast)
             $children_terms = get_terms( array( 'taxonomy' => 'product_cat', 'parent' => $term->term_id, 'hide_empty' => true ) );
             $level2 = array();
 
@@ -730,149 +795,13 @@ if ( ! function_exists( 'wcs_get_initial_data_safe' ) ) {
             $menu[] = array( 'id' => $term->term_id, 'name' => $term->name, 'slug' => $term->slug, 'type' => 'category', 'children' => $level2 );
         }
 
-        // 3. fetch_products_sql_v7 Helper
-        $fetch_products_sql_v7 = function($slug) use ($wpdb) {
-            $sql = "
-                SELECT 
-                    p.ID, p.post_title, p.post_name, p.post_date,
-                    pm_price.meta_value as price,
-                    pm_reg.meta_value as regular_price,
-                    pm_whole.meta_value as wholesale_price,
-                    pm_img_file.meta_value as image_file
-                FROM {$wpdb->posts} p
-                INNER JOIN {$wpdb->term_relationships} tr ON (p.ID = tr.object_id)
-                INNER JOIN {$wpdb->term_taxonomy} tt ON (tr.term_taxonomy_id = tt.term_taxonomy_id)
-                INNER JOIN {$wpdb->terms} t ON (tt.term_id = t.term_id)
-                LEFT JOIN {$wpdb->postmeta} pm_price ON (p.ID = pm_price.post_id AND pm_price.meta_key = '_price')
-                LEFT JOIN {$wpdb->postmeta} pm_reg ON (p.ID = pm_reg.post_id AND pm_reg.meta_key = '_regular_price')
-                LEFT JOIN {$wpdb->postmeta} pm_whole ON (p.ID = pm_whole.post_id AND pm_whole.meta_key = 'wholesale_customer_wholesale_price')
-                LEFT JOIN {$wpdb->postmeta} pm_thumb ON (p.ID = pm_thumb.post_id AND pm_thumb.meta_key = '_thumbnail_id')
-                LEFT JOIN {$wpdb->postmeta} pm_img_file ON (pm_thumb.meta_value = pm_img_file.post_id AND pm_img_file.meta_key = '_wp_attached_file')
-                WHERE p.post_type = 'product' 
-                AND p.post_status = 'publish' 
-                AND tt.taxonomy = 'product_cat'
-                AND t.slug = %s
-                ORDER BY p.post_date DESC
-                LIMIT 4
-            ";
-            
-            $results = $wpdb->get_results( $wpdb->prepare($sql, $slug) );
-            $upload_base = wp_upload_dir()['baseurl'];
-            
-            $data = array();
-            foreach($results as $r) {
-                $img = '';
-                if ( $r->image_file ) {
-                    if ( strpos($r->image_file, 'http') === 0 ) {
-                         $img = $r->image_file;
-                    } else {
-                         $img = $upload_base . '/' . $r->image_file;
-                    }
-                }
-                $data[] = array(
-                    'id' => (int)$r->ID,
-                    'name' => $r->post_title,
-                    'slug' => $r->post_name,
-                    'image' => $img,
-                    'price_html' => '<span class="amount">$' . ($r->price ?: $r->regular_price) . '</span>',
-                    'raw_price' => $r->price,
-                    'regular_price' => $r->regular_price,
-                    'wholesale_price' => $r->wholesale_price,
-                );
-            }
-            return $data;
-        };
+        // 3. TURBO SQL (Products + Image Join)
+        $trending_data = wcs_get_headless_products_list_safe('trending-products');
+        $new_arrivals = wcs_get_headless_products_list_safe('new-arrivals');
+        $best_sellers = wcs_get_headless_products_list_safe('best-sellers');
 
-        // ONLY FETCH TRENDING (Hero) here
-        $trending_data = $fetch_products_sql_v7('trending-products');
-
-         $wholesale_rules = array(
-            'tier_1' => array(
-                'role' => get_option('swp_role_a_name', 'customer_category_1'),
-                'discount' => (int) get_option('swp_role_a_percent', 20),
-            ),
-            'tier_2' => array(
-                'role' => get_option('swp_role_b_name', 'customer_category_2'),
-                'discount' => (int) get_option('swp_role_b_percent', 30),
-            )
-        );
-
-        $final_data = array(
-            'site_name' => get_bloginfo( 'name' ),
-            'logo'      => 'https://hotpink-camel-152562.hostingersite.com/wp-content/uploads/2026/01/Group-2104-1-2.png',
-            'free_shipping_threshold' => (float) get_option( 'wcs_free_shipping_threshold', 0 ),
-            'wholesale_rules' => $wholesale_rules,
-            'menu'      => $menu,
-            'trending'  => $trending_data, // Only Hero Data
-        );
-
-        set_transient( 'wcs_initial_app_data_v1', $final_data, HOUR_IN_SECONDS );
-        return new WP_REST_Response( $final_data, 200 );
-    }
-}
-
-if ( ! function_exists( 'wcs_get_secondary_data_safe' ) ) {
-    function wcs_get_secondary_data_safe() {
-        // CACHE (Secondary Data - 1 Hour)
-        $cached_data = get_transient( 'wcs_secondary_app_data_v1' );
-        if ( false !== $cached_data ) {
-             return new WP_REST_Response( $cached_data, 200 );
-        }
-        
-        global $wpdb;
-
-        // Fetch Helper (Same as above, duplicated for isolation/transient safety)
-        $fetch_products_sql_v7 = function($slug) use ($wpdb) {
-             $sql = "
-                SELECT 
-                    p.ID, p.post_title, p.post_name, p.post_date,
-                    pm_price.meta_value as price,
-                    pm_reg.meta_value as regular_price,
-                    pm_whole.meta_value as wholesale_price,
-                    pm_img_file.meta_value as image_file
-                FROM {$wpdb->posts} p
-                INNER JOIN {$wpdb->term_relationships} tr ON (p.ID = tr.object_id)
-                INNER JOIN {$wpdb->term_taxonomy} tt ON (tr.term_taxonomy_id = tt.term_taxonomy_id)
-                INNER JOIN {$wpdb->terms} t ON (tt.term_id = t.term_id)
-                LEFT JOIN {$wpdb->postmeta} pm_price ON (p.ID = pm_price.post_id AND pm_price.meta_key = '_price')
-                LEFT JOIN {$wpdb->postmeta} pm_reg ON (p.ID = pm_reg.post_id AND pm_reg.meta_key = '_regular_price')
-                LEFT JOIN {$wpdb->postmeta} pm_whole ON (p.ID = pm_whole.post_id AND pm_whole.meta_key = 'wholesale_customer_wholesale_price')
-                LEFT JOIN {$wpdb->postmeta} pm_thumb ON (p.ID = pm_thumb.post_id AND pm_thumb.meta_key = '_thumbnail_id')
-                LEFT JOIN {$wpdb->postmeta} pm_img_file ON (pm_thumb.meta_value = pm_img_file.post_id AND pm_img_file.meta_key = '_wp_attached_file')
-                WHERE p.post_type = 'product' 
-                AND p.post_status = 'publish' 
-                AND tt.taxonomy = 'product_cat'
-                AND t.slug = %s
-                ORDER BY p.post_date DESC
-                LIMIT 4
-            ";
-            $results = $wpdb->get_results( $wpdb->prepare($sql, $slug) );
-            $upload_base = wp_upload_dir()['baseurl'];
-            $data = array();
-            foreach($results as $r) {
-                $img = '';
-                if ( $r->image_file ) {
-                    if ( strpos($r->image_file, 'http') === 0 ) $img = $r->image_file;
-                    else $img = $upload_base . '/' . $r->image_file;
-                }
-                $data[] = array(
-                    'id' => (int)$r->ID,
-                    'name' => $r->post_title,
-                    'slug' => $r->post_name,
-                    'image' => $img,
-                    'price_html' => '<span class="amount">$' . ($r->price ?: $r->regular_price) . '</span>',
-                    'raw_price' => $r->price,
-                    'regular_price' => $r->regular_price,
-                    'wholesale_price' => $r->wholesale_price,
-                );
-            }
-            return $data;
-        };
-
-        $new_arrivals = $fetch_products_sql_v7('new-arrivals');
-        $best_sellers = $fetch_products_sql_v7('best-sellers');
-
-        // BRANDS SQL
+        // 4. BRANDS SQL (No Loop)
+        // Get Term, Tax, and Image Meta in one go.
         $brands_sql = "
             SELECT t.term_id, t.name, t.slug, tm.meta_value as image_id
             FROM {$wpdb->terms} t
@@ -885,8 +814,12 @@ if ( ! function_exists( 'wcs_get_secondary_data_safe' ) ) {
         ";
         $brand_results = $wpdb->get_results( $brands_sql );
         $brand_data = array();
-        
+        $base_url = wp_upload_dir()['baseurl'];
+
         foreach ( $brand_results as $b ) {
+            // We still need the file path for the brand image ID. 
+            // To be ultra-fast, we could join again, but let's do a quick lookup helper or just use the WP function for safety here as term meta structure varies slightly.
+            // Actually, for maximum speed, let's use wp_get_attachment_url but only if ID exists.
             $img = '';
             if ( $b->image_id ) {
                  $img = wp_get_attachment_image_url( $b->image_id, 'medium' );
@@ -897,57 +830,79 @@ if ( ! function_exists( 'wcs_get_secondary_data_safe' ) ) {
             if(count($brand_data) >= 10) break;
         }
 
+        // Fetch Wholesale Rules (for Frontend Calculation)
+        $wholesale_rules = array(
+            'tier_1' => array(
+                'role' => get_option('swp_role_a_name', 'customer_category_1'),
+                'discount' => (int) get_option('swp_role_a_percent', 20),
+            ),
+            'tier_2' => array(
+                'role' => get_option('swp_role_b_name', 'customer_category_2'),
+                'discount' => (int) get_option('swp_role_b_percent', 30),
+            )
+        );
+
         $final_data = array(
+            'site_name' => get_bloginfo( 'name' ),
+            'logo'      => wcs_get_api_logo(), // DYNAMIC
+            'free_shipping_threshold' => (float) get_option( 'wcs_free_shipping_threshold', 0 ),
+            'wholesale_rules' => $wholesale_rules, // ADDED RULES
+            'menu'      => $menu,
             'brands'    => $brand_data,
+            'trending'  => $trending_data,
             'new_arrivals' => $new_arrivals,
             'best_sellers' => $best_sellers
         );
 
-        set_transient( 'wcs_secondary_app_data_v1', $final_data, HOUR_IN_SECONDS );
+        set_transient( 'wcs_headless_app_data_v8', $final_data, HOUR_IN_SECONDS );
+
         return new WP_REST_Response( $final_data, 200 );
+            
+        } catch ( Throwable $e ) {
+            return new WP_REST_Response( array( 'code' => 'server_error', 'message' => $e->getMessage(), 'data' => array( 'status' => 500 ) ), 500 );
+        }
     }
 }
 
-    // Helper to format products for lists (DRY)
-    if ( !function_exists('wcs_format_product_light') ) {
-        function wcs_format_product_light($p_id) {
-            $product = wc_get_product($p_id);
-            if (!$product) return null;
+// Helper to format products for lists (DRY) - MOVED OUTSIDE
+if ( !function_exists('wcs_format_product_light') ) {
+    function wcs_format_product_light($p_id) {
+        $product = wc_get_product($p_id);
+        if (!$product) return null;
 
-            $img_id = $product->get_image_id();
-            $img_url = $img_id ? wp_get_attachment_image_url($img_id, 'full') : '';
-            
-            $brand_name = '';
-            $brand_terms = get_the_terms($p_id, 'pwb-brand');
-            if ($brand_terms && !is_wp_error($brand_terms)) {
-                $brand_name = $brand_terms[0]->name;
-            }
-
-            // Get Prices
-            $price = $product->get_price();
-            $reg_price = $product->get_regular_price();
-            $wholesale_price = get_post_meta($p_id, 'wholesale_customer_wholesale_price', true);
-
-            // Gallery (for hover)
-            $gallery_ids = $product->get_gallery_image_ids();
-            $gallery = array();
-            if(!empty($gallery_ids)) {
-                 $gallery[] = wp_get_attachment_image_url($gallery_ids[0], 'full');
-            }
-
-            return array(
-                'id' => $p_id,
-                'name' => $product->get_name(),
-                'price_html' => $product->get_price_html(), 
-                'raw_price' => $price,
-                'regular_price' => $reg_price,
-                'wholesale_price' => $wholesale_price,
-                'image' => $img_url,
-                'gallery' => $gallery,
-                'brand' => $brand_name,
-                'slug' => $product->get_slug()
-            );
+        $img_id = $product->get_image_id();
+        $img_url = $img_id ? wp_get_attachment_image_url($img_id, 'full') : '';
+        
+        $brand_name = '';
+        $brand_terms = get_the_terms($p_id, 'pwb-brand');
+        if ($brand_terms && !is_wp_error($brand_terms)) {
+            $brand_name = $brand_terms[0]->name;
         }
+
+        // Get Prices
+        $price = $product->get_price();
+        $reg_price = $product->get_regular_price();
+        $wholesale_price = get_post_meta($p_id, 'wholesale_customer_wholesale_price', true);
+
+        // Gallery (for hover)
+        $gallery_ids = $product->get_gallery_image_ids();
+        $gallery = array();
+        if(!empty($gallery_ids)) {
+                $gallery[] = wp_get_attachment_image_url($gallery_ids[0], 'full');
+        }
+
+        return array(
+            'id' => $p_id,
+            'name' => $product->get_name(),
+            'price_html' => $product->get_price_html(), 
+            'raw_price' => $price,
+            'regular_price' => $reg_price,
+            'wholesale_price' => $wholesale_price,
+            'image' => $img_url,
+            'gallery' => $gallery,
+            'brand' => $brand_name,
+            'slug' => $product->get_slug()
+        );
     }
 }
 
@@ -1120,5 +1075,74 @@ if ( ! function_exists( 'wcs_handle_form_submit_safe' ) ) {
         }
 
         return new WP_REST_Response( array( 'success' => true, 'entry_id' => $entry ), 200 );
+    }
+}
+
+// --- CACHE INVALIDATION & WARMING ---
+if ( ! function_exists( 'wcs_clear_headless_cache' ) ) {
+    function wcs_clear_headless_cache() {
+        delete_transient( 'wcs_headless_app_data_v8' );
+        // Regenerate immediately so the FIRST user request is fast (Cache Warming)
+        if ( function_exists('wcs_get_headless_data_safe') ) {
+            wcs_get_headless_data_safe();
+        }
+    }
+    add_action( 'save_post_product', 'wcs_clear_headless_cache' );
+    add_action( 'edited_product_cat', 'wcs_clear_headless_cache' );
+    add_action( 'edited_pwb-brand', 'wcs_clear_headless_cache' );
+    add_action( 'woocommerce_settings_saved', 'wcs_clear_headless_cache' );
+}
+
+// Helper for SQL Product Lists (Global Scope)
+if ( ! function_exists( 'wcs_get_headless_products_list_safe' ) ) {
+    function wcs_get_headless_products_list_safe( $slug ) {
+        global $wpdb;
+
+        $sql = "
+            SELECT 
+                p.ID, p.post_title, p.post_name, p.post_date,
+                pm_price.meta_value as price,
+                pm_reg.meta_value as regular_price,
+                pm_whole.meta_value as wholesale_price,
+                pm_img_file.meta_value as image_file
+            FROM {$wpdb->posts} p
+            INNER JOIN {$wpdb->term_relationships} tr ON (p.ID = tr.object_id)
+            INNER JOIN {$wpdb->term_taxonomy} tt ON (tr.term_taxonomy_id = tt.term_taxonomy_id)
+            INNER JOIN {$wpdb->terms} t ON (tt.term_id = t.term_id)
+            -- Prices
+            LEFT JOIN {$wpdb->postmeta} pm_price ON (p.ID = pm_price.post_id AND pm_price.meta_key = '_price')
+            LEFT JOIN {$wpdb->postmeta} pm_reg ON (p.ID = pm_reg.post_id AND pm_reg.meta_key = '_regular_price')
+            LEFT JOIN {$wpdb->postmeta} pm_whole ON (p.ID = pm_whole.post_id AND pm_whole.meta_key = 'wholesale_customer_wholesale_price')
+            -- Images (Thumbnail ID -> Attachment Post -> Attached File)
+            LEFT JOIN {$wpdb->postmeta} pm_thumb ON (p.ID = pm_thumb.post_id AND pm_thumb.meta_key = '_thumbnail_id')
+            LEFT JOIN {$wpdb->postmeta} pm_img_file ON (pm_thumb.meta_value = pm_img_file.post_id AND pm_img_file.meta_key = '_wp_attached_file')
+            WHERE p.post_type = 'product' 
+            AND p.post_status = 'publish' 
+            AND tt.taxonomy = 'product_cat'
+            AND t.slug = %s
+            ORDER BY p.post_date DESC
+            LIMIT 4
+        ";
+        
+        $results = $wpdb->get_results( $wpdb->prepare($sql, $slug) );
+        $upload_base = wp_upload_dir()['baseurl'];
+        
+        $data = array();
+        foreach($results as $r) {
+            $img = '';
+            if ( $r->image_file ) {
+                $img = ( strpos($r->image_file, 'http') === 0 ) ? $r->image_file : $upload_base . '/' . $r->image_file;
+            }
+
+            $data[] = array(
+                'id' => (int)$r->ID,
+                'name' => $r->post_title,
+                'slug' => $r->post_name,
+                'image' => $img,
+                'raw_price' => $r->price ?: $r->regular_price,
+                'regular_price' => $r->regular_price,
+            );
+        }
+        return $data;
     }
 }
