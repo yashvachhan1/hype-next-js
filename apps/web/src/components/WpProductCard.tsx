@@ -5,8 +5,29 @@ import { useWishlist } from '@/context/WishlistContext';
 
 // EXACT CSS FROM WORDPRESS (Sanitized for React)
 const WP_STYLES = `
-    .wcs-rounded-grid-wrap { width: 100%; padding: 40px 0; font-family: 'Inter', sans-serif; }
-    .wcs-rounded-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+    .wcs-rounded-grid-wrap { width: 100% !important; padding: 20px 0 !important; font-family: 'Inter', sans-serif; }
+    .wcs-rounded-grid { 
+        display: grid !important; 
+        grid-template-columns: repeat(2, 1fr) !important; 
+        gap: 12px !important; 
+        padding: 0 10px !important;
+    }
+
+    @media (min-width: 768px) {
+        .wcs-rounded-grid-wrap { padding: 40px 0 !important; }
+        .wcs-rounded-grid { 
+            grid-template-columns: repeat(3, 1fr) !important; 
+            gap: 20px !important;
+            padding: 0 !important;
+        }
+    }
+
+    @media (min-width: 1024px) {
+        .wcs-rounded-grid { 
+            grid-template-columns: repeat(4, 1fr) !important; 
+            gap: 24px !important;
+        }
+    }
 
     .wcs-rounded-card { 
         background: #fff; 
@@ -104,14 +125,20 @@ const WP_STYLES = `
 
     @media (max-width: 1024px) { 
         .wcs-rc-price { font-size: 16px; }
-        .wcs-rc-title { font-size: 13px; min-height: 36px; }
+        .wcs-rc-title { font-size: 13px; min-height: 36px; -webkit-line-clamp: 2; }
         .wcs-rc-content { padding: 15px 12px; }
     }
-    @media (max-width: 640px) { 
+    @media (max-width: 767px) {
+        .wcs-rounded-card { border-radius: 16px; }
+        .wcs-rc-media { aspect-ratio: 1/1; }
+        .wcs-rc-brand { font-size: 9px; margin-bottom: 4px; }
+        .wcs-rc-title { font-size: 11px; min-height: 30px; margin-bottom: 8px; }
         .wcs-rc-price { font-size: 14px; }
-        .wcs-rc-content { padding: 12px 8px; }
-        .wcs-rc-btn { font-size: 9px; padding: 8px 0; }
-        .wcs-rc-wishlist { width: 30px; height: 30px; top: 10px; right: 10px; }
+        .wcs-rc-price-box { margin-bottom: 12px; min-height: 20px; }
+        .wcs-rc-content { padding: 12px 10px; }
+        .wcs-rc-btn { font-size: 9px; padding: 10px 0; border-radius: 8px; font-weight: 700; }
+        .wcs-rc-wishlist { width: 28px; height: 28px; top: 10px; right: 10px; }
+        .wcs-rc-actions { gap: 4px; }
     }
 `;
 

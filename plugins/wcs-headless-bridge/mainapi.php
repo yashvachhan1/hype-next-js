@@ -290,12 +290,279 @@ if ( ! function_exists( 'wcs_get_brands_safe' ) ) {
 
 if ( ! function_exists( 'wcs_get_products_safe' ) ) {
     function wcs_get_products_safe( $request ) {
-        return new WP_REST_Response( array( 
-            'products' => [], 
-            'total' => 0,
-            'debug' => 'Minimal echo',
-            'include' => $request->get_param('include')
-        ), 200 );
+        @ini_set('memory_limit', '2048M'); 
+        @ini_set('max_execution_time', 1200);
+        @set_time_limit(1200);
+
+        try {
+            $cat_slug = $request->get_param( 'category' );
+            $brand_slug = $request->get_param( 'brand' );
+            $min_price = $request->get_param( 'min_price' ); 
+            $max_price = $request->get_param( 'max_price' );
+            $search = $request->get_param( 'search' );
+            $slug = $request->get_param( 'slug' );
+            $page = $request->get_param( 'page' ) ? intval($request->get_param( 'page' )) : 1;
+
+            if ( $slug ) {
+                $decoded_slug = urldecode($slug);
+                $args_q = array( 'post_type' => 'product', 'name' => $decoded_slug, 'posts_per_page' => 1, 'post_status' => array('publish', 'private'), 'fields' => 'ids' );
+                $q = new WP_Query($args_q);
+                $product_id = !empty($q->posts) ? $q->posts[0] : 0;
+                
+                 if ( !$product_id && function_exists('get_page_by_path') ) {
+                     $post_obj = get_page_by_path( $decoded_slug, OBJECT, 'product' );
+                     if ( $post_obj ) $product_id = $post_obj->ID;
+                 }
+
+                if ( !$product_id ) return new WP_REST_Response( array( 'products' => [], 'total' => 0 ), 200 );
+
+                $p = wc_get_product($product_id);
+                if (!$p) return new WP_REST_Response( array( 'products' => [], 'total' => 0 ), 200 );
+
+                $img_url = wp_get_attachment_image_url( $p->get_image_id(), 'full' );
+                $gallery_ids = $p->get_gallery_image_ids();
+                $gallery = array();
+                if ($img_url) $gallery[] = $img_url;
+                foreach($gallery_ids as $id) $gallery[] = wp_get_attachment_image_url( $id, 'full' );
+
+                $variations_data = array();
+                if ( $p->is_type('variable') ) {
+                    $available_variations = $p->get_available_variations();
+                    foreach ( $available_variations as $variation ) {
+                        $v_id = $variation['variation_id'];
+                        $v_obj = wc_get_product($v_id);
+                        if(!$v_obj) continue;
+                        
+                        $attr_strings = array();
+                        foreach ( $v_obj->get_attributes() as $name => $val ) {
+                            $val_name = $val;
+                             if ( taxonomy_exists( $name ) ) {
+                                 $term = get_term_by( 'slug', $val, $name );
+                                 if ( $term ) $val_name = $term->name;
+                             }
+                             $attr_strings[] = $val_name; 
+                        }
+                        
+                        $v_price = $v_obj->get_price() ?: $v_obj->get_regular_price() ?: 0;
+                        $variations_data[] = array(
+                            'id' => $v_id,
+                            'name' => implode(', ', $attr_strings), 
+                            'display_name' => !empty($attr_strings) ? implode(' - ', $attr_strings) : 'Variation #'.$v_id,
+                            'price' => $v_price,
+                            'regular_price' => $v_obj->get_regular_price(),
+                            'image' => wp_get_attachment_image_url( $v_obj->get_image_id(), 'full' ),
+                            'sku' => $v_obj->get_sku(),
+                            'stock_status' => $v_obj->get_stock_status()
+                        );
+                    }
+                }
+
+                 $related_products = array();
+                 $r_ids = wc_get_related_products($p->get_id(), 4);
+                 foreach($r_ids as $r_id) {
+                    $r_price = get_post_meta($r_id, '_price', true);
+                    $r_reg_price = get_post_meta($r_id, '_regular_price', true);
+                    $r_img_id = get_post_thumbnail_id($r_id);
+                    $r_img = wp_get_attachment_image_url($r_img_id, 'medium');
+                    
+                    $related_products[] = array(
+                        'id' => $r_id,
+                        'name' => get_the_title($r_id),
+                        'slug' => get_post_field('post_name', $r_id),
+                        'price' => $r_price,
+                        'raw_price' => $r_price,
+                        'regular_price' => $r_reg_price,
+                        'image' => $r_img ?: '',
+                        'badge' => ''
+                    );
+                 }
+
+                $price_val = $p->get_price();
+                if ( ( ! $price_val ) && $p->is_type('variable') ) $price_val = $p->get_variation_price( 'min', true );
+                if ( ! $price_val ) $price_val = $p->get_regular_price();
+
+                // WHOLESALE GET
+                $wholesale_price = get_post_meta($p->get_id(), 'wholesale_customer_wholesale_price', true); // TRYING COMMON META KEY
+
+                $final_product = array(
+                    'id' => $p->get_id(),
+                    'name' => $p->get_name(),
+                    'type' => $p->get_type(),
+                    'price' => strip_tags($p->get_price_html()), 
+                    'price_html' => $p->get_price_html(),
+                    'raw_price' => $price_val,
+                    'regular_price' => $p->get_regular_price(),
+                    'sale_price' => $p->get_sale_price(),
+                    'wholesale_price' => $wholesale_price, //ADDED
+                    'image' => $img_url ?: '',
+                    'gallery' => $gallery,
+                    'slug' => $p->get_slug(),
+                    'description' => $p->get_description(),
+                    'short_description' => $p->get_short_description(),
+                    'sku' => $p->get_sku(),
+                    'stock_status' => $p->get_stock_status(),
+                    'variations' => $variations_data,
+                    'related_products' => $related_products
+                );
+
+                return new WP_REST_Response( array( 'products' => array($final_product), 'total' => 1 ), 200 );
+            }
+
+            global $wpdb;
+            
+            $sql = "SELECT DISTINCT p.ID, p.post_title, p.post_name, 
+                    pm_price.meta_value as price, 
+                    pm_reg.meta_value as regular_price,
+                    pm_whole.meta_value as wholesale_price,
+                    pm_img.meta_value as image_id
+                    FROM {$wpdb->posts} p ";
+            
+            $sql .= " LEFT JOIN {$wpdb->postmeta} pm_price ON (p.ID = pm_price.post_id AND pm_price.meta_key = '_price') ";
+            $sql .= " LEFT JOIN {$wpdb->postmeta} pm_reg ON (p.ID = pm_reg.post_id AND pm_reg.meta_key = '_regular_price') ";
+            $sql .= " LEFT JOIN {$wpdb->postmeta} pm_whole ON (p.ID = pm_whole.post_id AND pm_whole.meta_key = 'wholesale_customer_wholesale_price') "; // JOIN WHOLESALE
+            $sql .= " LEFT JOIN {$wpdb->postmeta} pm_thumb ON (p.ID = pm_thumb.post_id AND pm_thumb.meta_key = '_thumbnail_id') ";
+            $sql .= " LEFT JOIN {$wpdb->postmeta} pm_img ON (pm_thumb.meta_value = pm_img.post_id AND pm_img.meta_key = '_wp_attached_file') ";
+
+            $where_clauses = array();
+            $where_clauses[] = "p.post_type = 'product'";
+            $where_clauses[] = "p.post_status IN ('publish', 'private')"; 
+
+            if ( $search ) {
+                $s_esc = $wpdb->esc_like($search);
+                $where_clauses[] = "(p.post_title LIKE '%$s_esc%')";
+            }
+            
+            $debug_ids = 'none';
+
+            if ( $cat_slug && $cat_slug !== 'all' ) {
+                $term_row = $wpdb->get_row( $wpdb->prepare( 
+                    "SELECT t.term_id, tt.term_taxonomy_id FROM {$wpdb->terms} t 
+                     INNER JOIN {$wpdb->term_taxonomy} tt ON t.term_id = tt.term_id 
+                     WHERE t.slug = %s AND tt.taxonomy = 'product_cat' LIMIT 1", 
+                    $cat_slug 
+                ));
+
+                if ( $term_row ) {
+                    $target_term_id = $term_row->term_id;
+                    $all_cats = $wpdb->get_results( "SELECT term_id, parent FROM {$wpdb->term_taxonomy} WHERE taxonomy = 'product_cat'" );
+                    $children_map = array();
+                    foreach ( $all_cats as $cat ) {
+                        $children_map[ $cat->parent ][] = $cat->term_id;
+                    }
+
+                    $include_ids = array( $target_term_id );
+                    $stack = array( $target_term_id );
+                    
+                    while ( !empty($stack) ) {
+                        $current_id = array_pop($stack);
+                        if ( isset($children_map[$current_id]) ) {
+                            foreach ( $children_map[$current_id] as $child_id ) {
+                                 $include_ids[] = $child_id;
+                                 $stack[] = $child_id;
+                            }
+                        }
+                    }
+                    
+                    $include_ids = array_unique($include_ids);
+                    $ids_str = implode(',', array_map('intval', $include_ids));
+                    
+                     $sql .= " INNER JOIN {$wpdb->term_relationships} tr ON (p.ID = tr.object_id) ";
+                     $sql .= " INNER JOIN {$wpdb->term_taxonomy} tt ON (tr.term_taxonomy_id = tt.term_taxonomy_id) ";
+                     $where_clauses[] = "tt.term_id IN ($ids_str)";
+                } else {
+                     $where_clauses[] = "0=1"; 
+                }
+            }
+            
+            if ( $brand_slug ) {
+                 $sql .= " INNER JOIN {$wpdb->term_relationships} tr_b ON (p.ID = tr_b.object_id) ";
+                 $sql .= " INNER JOIN {$wpdb->term_taxonomy} tt_b ON (tr_b.term_taxonomy_id = tt_b.term_taxonomy_id) ";
+                 $sql .= " INNER JOIN {$wpdb->terms} t_b ON (tt_b.term_id = t_b.term_id) ";
+                 
+                 $where_clauses[] = "tt_b.taxonomy = 'pwb-brand'";
+                 $where_clauses[] = $wpdb->prepare("t_b.slug = %s", $brand_slug);
+            }
+
+            if ( (isset($min_price) || isset($max_price)) && !$slug ) {
+                $min = isset($min_price) ? floatval($min_price) : 0;
+                $max = isset($max_price) && $max_price > 0 ? floatval($max_price) : 99999;
+                 if ( $min > 0 || $max < 5000 ) {
+                     $where_clauses[] = $wpdb->prepare("CAST(pm_price.meta_value AS SIGNED) BETWEEN %d AND %d", $min, $max);
+                 }
+            }
+
+            $where_sql = " WHERE " . implode( " AND ", $where_clauses );
+            $limit = 12;
+            $offset = ($page - 1) * $limit;
+            
+            $sql .= $where_sql;
+            $sql .= " GROUP BY p.ID ORDER BY p.post_date DESC LIMIT $limit OFFSET $offset ";
+
+            $raw_products = $wpdb->get_results($sql);
+            
+            $count_sql = "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p ";
+            if ( ($cat_slug && $cat_slug !== 'all') ) { 
+                 $count_sql .= " INNER JOIN {$wpdb->term_relationships} tr ON (p.ID = tr.object_id) ";
+                 $count_sql .= " INNER JOIN {$wpdb->term_taxonomy} tt ON (tr.term_taxonomy_id = tt.term_taxonomy_id) ";
+            }
+            if ( $brand_slug ) {
+                 $count_sql .= " INNER JOIN {$wpdb->term_relationships} tr_b ON (p.ID = tr_b.object_id) ";
+                 $count_sql .= " INNER JOIN {$wpdb->term_taxonomy} tt_b ON (tr_b.term_taxonomy_id = tt_b.term_taxonomy_id) ";
+                 $count_sql .= " INNER JOIN {$wpdb->terms} t_b ON (tt_b.term_id = t_b.term_id) ";
+            }
+            if (isset($min) && ($min > 0 || $max < 5000)) {
+                 $count_sql .= " LEFT JOIN {$wpdb->postmeta} pm_price ON (p.ID = pm_price.post_id AND pm_price.meta_key = '_price') ";
+            }
+
+            $count_sql .= $where_sql;
+            $total_posts = $wpdb->get_var($count_sql);
+            $total_pages = ceil($total_posts / $limit);
+
+            $products = array();
+            $upload_dir = wp_upload_dir();
+            $base_url = $upload_dir['baseurl'];
+
+            if ( !empty($raw_products) ) {
+                foreach ( $raw_products as $rp ) {
+                    $price_html = $rp->price ? '<span class="amount">$' . $rp->price . '</span>' : '';
+                    
+                    $img_url = '';
+                    if ( $rp->image_id ) {
+                        if (strpos($rp->image_id, 'http') === 0) {
+                            $img_url = $rp->image_id;
+                        } else {
+                            $img_url = $base_url . '/' . $rp->image_id;
+                        }
+                    }
+
+                    $products[] = array(
+                        'id' => (int)$rp->ID,
+                        'name' => $rp->post_title,
+                        'slug' => $rp->post_name,
+                        'price' => $rp->price,
+                        'price_html' => $price_html,
+                        'raw_price' => $rp->price, 
+                        'regular_price' => $rp->regular_price,
+                        'wholesale_price' => $rp->wholesale_price, // MAP IT
+                        'sale_price' => '',
+                        'image' => $img_url,
+                        'type' => 'simple',
+                        'badge' => ''
+                    );
+                }
+            }
+            
+            return new WP_REST_Response( array( 
+                'products' => $products, 
+                'pages' => $total_pages,
+                'total' => (int)$total_posts,
+                'debug_ids' => $debug_ids,
+                'debug_sql' => $sql
+            ), 200 );
+
+        } catch ( Throwable $e ) {
+            return new WP_REST_Response( array( 'code' => 'server_error', 'message' => $e->getMessage(), 'data' => array( 'status' => 500 ) ), 500 );
+        }
     }
 }
 
@@ -872,9 +1139,9 @@ if ( ! function_exists( 'wcs_get_headless_products_list_safe' ) ) {
         }
         return $data;
     }
-}
 
 // 12. CACHING & PERFORMANCE (Optimized)
 
 // 12. CACHE INVALIDATION & WARMING (Optimized)
 // ... hooks are already registered above
+}

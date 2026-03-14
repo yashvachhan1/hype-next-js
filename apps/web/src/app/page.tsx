@@ -119,20 +119,20 @@ function Hero() {
               <span className="text-xs font-bold tracking-widest uppercase text-gray-300">Wholesale Only • B2B Partner</span>
             </div>
 
-            <h1 className="text-5xl md:text-7xl font-black leading-[0.95] tracking-tight mb-6">
+            <h1 className="text-3xl md:text-5xl lg:text-7xl font-black leading-[0.95] tracking-tight mb-6">
               FUEL YOUR <br />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#aa00ff] via-purple-400 to-white">BUSINESS GROWTH</span>
             </h1>
 
-            <p className="text-gray-400 text-lg md:text-xl font-medium mb-10 max-w-2xl mx-auto lg:mx-0 leading-relaxed">
+            <p className="text-gray-400 text-sm md:text-lg lg:text-xl font-medium mb-10 max-w-2xl mx-auto lg:mx-0 leading-relaxed px-4 md:px-0">
               America's leading distributor of premium vape products. We supply smoke shops with top-tier brands like <span className="text-white font-bold">Geek Bar</span>, <span className="text-white font-bold">Lost Mary</span>, and <span className="text-white font-bold">Raz</span> at unbeatable wholesale rates.
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center gap-4 justify-center lg:justify-start">
-              <Link href="/shop" className="w-full sm:w-auto px-8 py-4 bg-[#aa00ff] hover:bg-[#8e00d6] text-white rounded-xl font-black uppercase tracking-wider shadow-[0_10px_40px_-10px_rgba(170,0,255,0.4)] hover:shadow-[0_20px_40px_-10px_rgba(170,0,255,0.6)] transition-all transform hover:-translate-y-1">
+            <div className="flex flex-col sm:flex-row items-center gap-4 justify-center lg:justify-start px-6 md:px-0">
+              <Link href="/category/all" className="w-full sm:w-auto px-8 py-3.5 md:py-4 bg-[#aa00ff] hover:bg-[#8e00d6] text-white rounded-xl font-black uppercase tracking-wider shadow-[0_10px_40px_-10px_rgba(170,0,255,0.4)] hover:shadow-[0_20px_40px_-10px_rgba(170,0,255,0.6)] transition-all transform hover:-translate-y-1 text-xs md:text-sm text-center">
                 View Catalog
               </Link>
-              <Link href="/register" className="w-full sm:w-auto px-8 py-4 bg-white/5 border border-white/10 hover:bg-white/10 text-white rounded-xl font-bold uppercase tracking-wider backdrop-blur-sm transition-all flex items-center justify-center gap-2">
+              <Link href="/register" className="w-full sm:w-auto px-8 py-3.5 md:py-4 bg-white/5 border border-white/10 hover:bg-white/10 text-white rounded-xl font-bold uppercase tracking-wider backdrop-blur-sm transition-all flex items-center justify-center gap-2 text-xs md:text-sm">
                 <User size={18} />
                 Register Account
               </Link>
@@ -328,13 +328,13 @@ export default function Home() {
       <section className="py-4 bg-white">
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative">
+            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative h-[200px] md:h-auto">
               <video src="https://mediumturquoise-porcupine-409422.hostingersite.com/wp-content/uploads/2025/11/Kumi-6-Scenic-video.mp4" className="w-full h-full object-cover" autoPlay loop muted playsInline></video>
             </div>
-            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative">
+            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative h-[200px] md:h-auto">
               <video src="https://mediumturquoise-porcupine-409422.hostingersite.com/wp-content/uploads/2025/11/Flum-UT-video-1.mp4" className="w-full h-full object-cover" autoPlay loop muted playsInline></video>
             </div>
-            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative">
+            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative h-[200px] md:h-auto">
               <video src="https://mediumturquoise-porcupine-409422.hostingersite.com/wp-content/uploads/2025/11/Nexa-Ultra-II-video.mp4" className="w-full h-full object-cover" autoPlay loop muted playsInline></video>
             </div>
           </div>
@@ -355,7 +355,7 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="wcs-rounded-grid-wrap">
             <div className="wcs-section-header" style={{ marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '36px', fontWeight: 900, color: '#111', margin: 0, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '-0.5px' }}>TRENDING PRODUCTS</h2>
+              <h2 className="text-2xl md:text-4xl font-black text-[#111] text-center uppercase tracking-tight">TRENDING PRODUCTS</h2>
               <div style={{ width: '50px', height: '5px', background: '#A101F6', margin: '15px auto 0', borderRadius: '10px' }}></div>
             </div>
             <div className="wcs-rounded-grid">
@@ -374,7 +374,7 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="wcs-rounded-grid-wrap">
             <div className="wcs-section-header" style={{ marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '36px', fontWeight: 900, color: '#111', margin: 0, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '-0.5px' }}>NEW ARRIVALS</h2>
+              <h2 className="text-2xl md:text-4xl font-black text-[#111] text-center uppercase tracking-tight">NEW ARRIVALS</h2>
               <div style={{ width: '50px', height: '5px', background: '#A101F6', margin: '15px auto 0', borderRadius: '10px' }}></div>
             </div>
             <div className="wcs-rounded-grid">
@@ -393,7 +393,7 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="wcs-rounded-grid-wrap">
             <div className="wcs-section-header" style={{ marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '36px', fontWeight: 900, color: '#111', margin: 0, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '-0.5px' }}>BEST SELLERS</h2>
+              <h2 className="text-2xl md:text-4xl font-black text-[#111] text-center uppercase tracking-tight">BEST SELLERS</h2>
               <div style={{ width: '50px', height: '5px', background: '#A101F6', margin: '15px auto 0', borderRadius: '10px' }}></div>
             </div>
             <div className="wcs-rounded-grid">
