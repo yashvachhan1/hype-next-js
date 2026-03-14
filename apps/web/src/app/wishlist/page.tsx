@@ -3,28 +3,50 @@
 import { useState, useEffect } from 'react';
 import Navbar from '@/components/Navbar';
 import Link from 'next/link';
-import { Heart, ShoppingCart, Trash2 } from 'lucide-react';
+import { Heart, ShoppingBag, Trash2, Loader2 } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
+import { useWishlist } from '@/context/WishlistContext';
 
 export default function WishlistPage() {
     const { addToCart } = useCart();
-    const [wishlist, setWishlist] = useState<any[]>([]);
+    const { wishlist, toggleWishlist } = useWishlist();
+    const [products, setProducts] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Load Wishlist from LocalStorage (Simple Client-Side Logic for now)
-        const stored = localStorage.getItem('wishlist');
-        if (stored) setWishlist(JSON.parse(stored));
-    }, []);
+        const loadProducts = async () => {
+            if (wishlist.length === 0) {
+                setProducts([]);
+                setLoading(false);
+                return;
+            }
 
-    const removeFromWishlist = (id: number) => {
-        const updated = wishlist.filter(item => item.id !== id);
-        setWishlist(updated);
-        localStorage.setItem('wishlist', JSON.stringify(updated));
-    };
+            try {
+                setLoading(true);
+                const ids = wishlist.join(',');
+                const res = await fetch(`/api/wp/wcs/v1/products?include=${ids}`);
+                const data = await res.json();
+                setProducts(Array.isArray(data.products) ? data.products : []);
+            } catch (err) {
+                console.error('Error fetching wishlist products:', err);
+                setProducts([]);
+            } finally {
+                setLoading(false);
+            }
+        };
 
-    const moveToCart = (item: any) => {
-        addToCart(item); // Add to cart
-        removeFromWishlist(item.id); // Remove from wishlist
+        loadProducts();
+    }, [wishlist]);
+
+    const handleAddToCart = (p: any) => {
+        addToCart([{
+            id: p.id,
+            product_id: p.id,
+            name: p.name,
+            price: Number(p.wholesale_price || p.price || 0),
+            quantity: 1,
+            image: p.image
+        }]);
     };
 
     return (
@@ -35,35 +57,46 @@ export default function WishlistPage() {
                 <div className="flex items-center gap-3 mb-8">
                     <Heart className="w-8 h-8 text-purple-600 fill-purple-600" />
                     <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tight">My Wishlist</h1>
-                    <span className="bg-gray-100 text-gray-600 text-xs font-bold px-2 py-1 rounded-full">{wishlist.length} Items</span>
+                    {!loading && <span className="bg-gray-100 text-gray-600 text-xs font-bold px-2 py-1 rounded-full">{wishlist.length} Items</span>}
                 </div>
 
-                {wishlist.length > 0 ? (
+                {loading ? (
+                    <div className="flex flex-col items-center justify-center py-32">
+                        <Loader2 className="w-12 h-12 text-purple-600 animate-spin mb-4" />
+                        <p className="text-gray-500 font-bold">Loading your favorites...</p>
+                    </div>
+                ) : products.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                        {wishlist.map((item) => (
+                        {products.map((item) => (
                             <div key={item.id} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm hover:shadow-lg transition relative group">
                                 <button
-                                    onClick={() => removeFromWishlist(item.id)}
-                                    className="absolute top-3 right-3 text-gray-400 hover:text-red-500 transition z-10"
+                                    onClick={() => toggleWishlist(item.id)}
+                                    className="absolute top-3 right-3 text-gray-400 hover:text-red-500 transition z-10 bg-white/80 p-1.5 rounded-full shadow-sm"
                                     title="Remove"
                                 >
                                     <Trash2 size={18} />
                                 </button>
 
-                                <div className="h-48 flex items-center justify-center p-4 bg-gray-50 rounded-xl mb-4">
+                                <Link href={`/product/${item.slug}`} className="h-48 flex items-center justify-center p-4 bg-gray-50 rounded-xl mb-4 group-hover:bg-purple-50/30 transition">
                                     <img src={item.image} className="max-h-full max-w-full object-contain" alt={item.name} />
-                                </div>
+                                </Link>
 
-                                <h3 className="font-bold text-gray-900 text-sm line-clamp-2 mb-2 h-10">{item.name}</h3>
+                                <h3 className="font-bold text-gray-900 text-sm line-clamp-2 mb-2 h-10">
+                                    <Link href={`/product/${item.slug}`} className="hover:text-purple-600 transition">{item.name}</Link>
+                                </h3>
 
                                 <div className="flex items-center justify-between mt-auto pt-3 border-t border-gray-50">
-                                    <span className="font-black text-purple-700" dangerouslySetInnerHTML={{ __html: item.price_html }}></span>
+                                    <div className="flex flex-col">
+                                        <span className="font-black text-purple-700 text-lg">
+                                            ${Number(item.wholesale_price || item.price || 0).toFixed(2)}
+                                        </span>
+                                    </div>
                                     <button
-                                        onClick={() => moveToCart(item)}
-                                        className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center hover:bg-purple-600 transition shadow-lg"
-                                        title="Move to Cart"
+                                        onClick={() => handleAddToCart(item)}
+                                        className="w-10 h-10 rounded-full bg-black text-white flex items-center justify-center hover:bg-purple-600 transition shadow-lg"
+                                        title="Add to Cart"
                                     >
-                                        <ShoppingCart size={16} />
+                                        <ShoppingBag size={18} />
                                     </button>
                                 </div>
                             </div>

@@ -30,127 +30,92 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const [cart, setCart] = useState<CartItem[]>([]);
     const [loading, setLoading] = useState(true);
 
-    const API_URL = '/api/wp/wc/store/v1/cart';
-
-    const getHeaders = () => {
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-        };
-        const cartToken = localStorage.getItem('wc_cart_token');
-        const wpNonce = localStorage.getItem('wp_nonce');
-
-        if (cartToken) headers['Cart-Token'] = cartToken;
-        if (wpNonce) headers['X-WP-Nonce'] = wpNonce;
-
-        return headers;
+    // Get stable storage key based on current user
+    const getStorageKey = () => {
+        if (typeof window === 'undefined') return 'hype_cart_guest';
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+            try {
+                const u = JSON.parse(storedUser);
+                return u.id ? `hype_cart_user_${u.id}` : 'hype_cart_guest';
+            } catch (e) { return 'hype_cart_guest'; }
+        }
+        return 'hype_cart_guest';
     };
 
-    const handleApiResponse = async (res: Response) => {
-        // Capture Cart-Token if WooCommerce provides it (for guest carts)
-        const newCartToken = res.headers.get('Cart-Token');
-        if (newCartToken) {
-            localStorage.setItem('wc_cart_token', newCartToken);
-        }
-
-        if (!res.ok) throw new Error('Cart API Error');
-        const data = await res.json();
-
-        // Map WC Store format to our CartItem format
-        if (data.items) {
-            const mappedCart: CartItem[] = data.items.map((item: any) => ({
-                id: item.key, // Store API uses a string key for cart items, Next.js UI expects it as 'id'
-                product_id: item.id,
-                name: item.name,
-                price: parseInt(item.prices.price) / 100, // API returns prices in cents
-                quantity: item.quantity,
-                image: item.images?.[0]?.src || '',
-                sku: item.sku,
-                variation_data: item.variation?.map((v: any) => `${v.attribute}: ${v.value}`).join(', ') || ''
-            }));
-            setCart(mappedCart);
-        } else {
-            setCart([]);
-        }
-    };
-
-    const fetchCart = async () => {
-        try {
-            setLoading(true);
-            const res = await fetch(API_URL, {
-                headers: getHeaders(),
-                credentials: 'include'
-            });
-            await handleApiResponse(res);
-        } catch (e) {
-            console.error('Failed to fetch cart', e);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Load from WC on mount
+    // Load on mount and whenever user changes
     useEffect(() => {
-        fetchCart();
+        const loadCart = () => {
+            const key = getStorageKey();
+            const stored = localStorage.getItem(key);
+            if (stored) {
+                try {
+                    setCart(JSON.parse(stored));
+                } catch (e) {
+                    setCart([]);
+                }
+            } else {
+                setCart([]);
+            }
+            setLoading(false);
+        };
+
+        loadCart();
+
+        // Listen for storage events (e.g. login/logout)
+        window.addEventListener('storage', loadCart);
+        return () => window.removeEventListener('storage', loadCart);
     }, []);
 
-    const addToCart = async (newItems: CartItem[]) => {
-        // We only process one item at a time for WC Store API in this basic implementation
-        // For multiple items, we'd need loop promises
-        setLoading(true);
-        try {
-            for (const item of newItems) {
-                const res = await fetch(`${API_URL}/add-item`, {
-                    method: 'POST',
-                    headers: getHeaders(),
-                    credentials: 'include',
-                    body: JSON.stringify({
-                        id: item.product_id, // Add by product/variation ID
-                        quantity: item.quantity
-                    })
-                });
-                await handleApiResponse(res);
-            }
-        } catch (e) {
-            console.error('Add to cart failed', e);
-        } finally {
-            setLoading(false);
+    // Also reload when user logs in/out in-app (not just storage event)
+    useEffect(() => {
+        const key = getStorageKey();
+        const stored = localStorage.getItem(key);
+        setCart(stored ? JSON.parse(stored) : []);
+    }, [typeof window !== 'undefined' ? localStorage.getItem('user') : null]);
+
+    // Save whenever cart changes
+    useEffect(() => {
+        if (!loading) {
+            const key = getStorageKey();
+            localStorage.setItem(key, JSON.stringify(cart));
         }
+    }, [cart, loading]);
+
+    const addToCart = async (newItems: CartItem[]) => {
+        setCart(prev => {
+            const updated = [...prev];
+            newItems.forEach(item => {
+                const prodId = Number(item.product_id);
+                const existing = updated.find(i => Number(i.product_id) === prodId);
+                if (existing) {
+                    existing.quantity += item.quantity;
+                } else {
+                    updated.push({ ...item, product_id: prodId, id: Date.now() + Math.random() });
+                }
+            });
+            return updated;
+        });
     };
 
     const removeFromCart = async (key: number | string) => {
-        setLoading(true);
-        try {
-            const res = await fetch(`${API_URL}/remove-item?key=${key}`, {
-                method: 'POST', // The WC Store API often prefers POST for item removal
-                headers: getHeaders(),
-                credentials: 'include'
-            });
-            await handleApiResponse(res);
-        } catch (e) {
-            console.error('Remove failed', e);
-        } finally {
-            setLoading(false);
-        }
+        setCart(prev => prev.filter(item => item.id !== key));
     };
 
     const updateQuantity = async (key: number | string, quantity: number) => {
-        setLoading(true);
-        try {
-            const res = await fetch(`${API_URL}/update-item`, {
-                method: 'POST',
-                headers: getHeaders(),
-                credentials: 'include',
-                body: JSON.stringify({ key, quantity })
-            });
-            await handleApiResponse(res);
-        } catch (e) {
-            console.error('Update failed', e);
-        } finally {
-            setLoading(false);
+        if (quantity < 1) {
+            removeFromCart(key);
+            return;
         }
+        setCart(prev => prev.map(item =>
+            item.id === key ? { ...item, quantity } : item
+        ));
     };
 
-    const clearCart = () => setCart([]); // Real WC cart clearing involves looping removes or /items DELETE
+    const clearCart = () => {
+        setCart([]);
+        localStorage.removeItem(getStorageKey());
+    };
 
     const cartTotal = cart.reduce((total, item) => total + (item.price * item.quantity), 0);
     const cartCount = cart.reduce((count, item) => count + item.quantity, 0);

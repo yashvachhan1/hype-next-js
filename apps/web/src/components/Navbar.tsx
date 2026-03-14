@@ -4,13 +4,11 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Search, ShoppingCart, User, Menu, Heart, Phone, MessageCircle, ChevronDown } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
+import { useWishlist } from '@/context/WishlistContext';
 import CartSidebar from '@/components/CartSidebar';
 
 import { fetchMenu } from '@/api/menu';
 import { fetchSettings } from '@/api/settings';
-import { fetchCart } from '@/api/cart';
-
-
 
 const MAIN_MENU_ITEMS = [
     'Devices',
@@ -35,6 +33,7 @@ export default function Navbar() {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isCartOpen, setIsCartOpen] = useState(false);
     const { cartCount } = useCart();
+    const { wishlist } = useWishlist();
 
     // Debounced Search Handler
     useEffect(() => {
@@ -79,11 +78,6 @@ export default function Navbar() {
         fetchSettings().then(data => {
             setSettings(data);
             if (data?.wholesale_rules) localStorage.setItem('wholesale_rules', JSON.stringify(data.wholesale_rules));
-        });
-
-        // 3. Cart
-        fetchCart().then(data => {
-            // no-op or context update 
         });
 
     }, []);
@@ -210,6 +204,14 @@ export default function Navbar() {
                 {/* 5. Icons */}
                 <div className="flex items-center gap-5">
 
+                    {/* Wishlist */}
+                    <Link href="/wishlist" className="relative group text-[#8b00ff] hover:text-[#7000cc] transition">
+                        <Heart className="w-7 h-7" strokeWidth={2.5} />
+                        {wishlist.length > 0 && (
+                            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold shadow-md border-2 border-white">{wishlist.length}</span>
+                        )}
+                    </Link>
+
                     {/* User */}
                     <div className="relative group z-50">
                         <Link href={user ? "/account" : "/login"} className="flex items-center gap-1 text-[#8b00ff] hover:text-[#7000cc] transition">
@@ -228,11 +230,12 @@ export default function Navbar() {
                                     </div>
                                     <Link href="/account" className="block px-4 py-2 text-sm font-medium text-gray-700 hover:bg-purple-50 hover:text-purple-700">Dashboard</Link>
                                     <Link href="/account?tab=orders" className="block px-4 py-2 text-sm font-medium text-gray-700 hover:bg-purple-50 hover:text-purple-700">My Orders</Link>
+                                    <Link href="/wishlist" className="block px-4 py-2 text-sm font-medium text-gray-700 hover:bg-purple-50 hover:text-purple-700">My Wishlist</Link>
                                     <div className="border-t border-gray-50 mt-1">
                                         <button onClick={() => {
                                             localStorage.removeItem('user');
                                             localStorage.removeItem('wp_nonce');
-                                            localStorage.removeItem('hype_cart');
+                                            localStorage.removeItem('wc_cart_token');
                                             sessionStorage.clear();
                                             window.location.href = '/';
                                         }} className="w-full text-left px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-50 transition">Sign Out</button>
