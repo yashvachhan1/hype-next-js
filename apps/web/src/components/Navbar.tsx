@@ -35,6 +35,21 @@ export default function Navbar() {
     const { cartCount } = useCart();
     const { wishlist } = useWishlist();
 
+    useEffect(() => {
+        const body = document.body;
+        if (isMenuOpen) {
+            body.style.overflow = 'hidden';
+            body.style.paddingRight = 'var(--removed-body-scroll-bar-size)';
+        } else {
+            body.style.overflow = '';
+            body.style.paddingRight = '';
+        }
+        return () => {
+            body.style.overflow = '';
+            body.style.paddingRight = '';
+        };
+    }, [isMenuOpen]);
+
     // Debounced Search Handler
     useEffect(() => {
         const timeoutId = setTimeout(async () => {

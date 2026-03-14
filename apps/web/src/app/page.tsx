@@ -328,13 +328,13 @@ export default function Home() {
       <section className="py-4 bg-white">
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative h-[200px] md:h-auto">
+            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative h-auto">
               <video src="https://mediumturquoise-porcupine-409422.hostingersite.com/wp-content/uploads/2025/11/Kumi-6-Scenic-video.mp4" className="w-full h-full object-cover" autoPlay loop muted playsInline></video>
             </div>
-            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative h-[200px] md:h-auto">
+            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative h-auto">
               <video src="https://mediumturquoise-porcupine-409422.hostingersite.com/wp-content/uploads/2025/11/Flum-UT-video-1.mp4" className="w-full h-full object-cover" autoPlay loop muted playsInline></video>
             </div>
-            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative h-[200px] md:h-auto">
+            <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative h-auto">
               <video src="https://mediumturquoise-porcupine-409422.hostingersite.com/wp-content/uploads/2025/11/Nexa-Ultra-II-video.mp4" className="w-full h-full object-cover" autoPlay loop muted playsInline></video>
             </div>
           </div>

@@ -103,7 +103,8 @@ export default function Hero3D({ products }: { products: any[] }) {
                 .swiper-slide {
                     background-position: center;
                     background-size: cover;
-                    width: 300px; 
+                    width: 88vw; 
+                    max-width: 300px;
                     height: 300px;
                     /* Updated shadow instead of border */
                     box-shadow: 0 10px 40px rgba(0,0,0,0.15); 
