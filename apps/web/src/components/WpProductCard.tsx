@@ -74,9 +74,15 @@ const WP_STYLES = `
 
     @media (max-width: 1024px) { 
         .wcs-rounded-grid { grid-template-columns: repeat(2, 1fr); gap: 15px; } 
+        .wcs-rc-price { font-size: 16px; }
+        .wcs-rc-title { font-size: 13px; min-height: 36px; }
+        .wcs-rc-content { padding: 15px 12px; }
     }
     @media (max-width: 640px) { 
-        .wcs-rounded-grid { grid-template-columns: 1fr; } 
+        .wcs-rounded-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; } 
+        .wcs-rc-price { font-size: 14px; }
+        .wcs-rc-content { padding: 12px 8px; }
+        .wcs-rc-btn { font-size: 10px; padding: 10px 0; }
     }
 `;
 

@@ -37,32 +37,52 @@ function AccountContent() {
             setApiError(null);
             console.log("DEBUG: Calling API for User ID:", userId);
 
-            // Orders
-            const resOrders = await fetch(`/api/wp/wcs/v1/orders?user_id=${userId}`);
-            if (!resOrders.ok) throw new Error(`Orders API Fail: ${resOrders.status}`);
-            const dataOrders = await resOrders.json();
-            console.log("Orders Response:", dataOrders);
-            if (dataOrders.orders) setOrders(dataOrders.orders);
+            // 1. Orders
+            try {
+                const resOrders = await fetch(`/api/wp/wcs/v1/orders?user_id=${userId}`);
+                if (resOrders.ok) {
+                    const dataOrders = await resOrders.json();
+                    console.log("Orders Response:", dataOrders);
+                    if (dataOrders.orders) setOrders(dataOrders.orders);
+                } else {
+                    console.error("Orders API Fail:", resOrders.status);
+                }
+            } catch (err) { console.error("Orders Fetch Err:", err); }
 
-            // Refunds
-            const resRefunds = await fetch(`/api/wp/wcs/v1/refunds?user_id=${userId}`);
-            console.log("Fetching Refunds URL:", `/api/wp/wcs/v1/refunds?user_id=${userId}`);
-            const dataRefunds = await resRefunds.json();
-            console.log("Refunds Response:", dataRefunds);
-            if (dataRefunds.refunds) setRefunds(dataRefunds.refunds);
+            // 2. Refunds
+            try {
+                const resRefunds = await fetch(`/api/wp/wcs/v1/refunds?user_id=${userId}`);
+                if (resRefunds.ok) {
+                    const dataRefunds = await resRefunds.json();
+                    console.log("Refunds Response:", dataRefunds);
+                    if (dataRefunds.refunds) setRefunds(dataRefunds.refunds);
+                } else {
+                    console.error("Refunds API Fail:", resRefunds.status);
+                }
+            } catch (err) { console.error("Refunds Fetch Err:", err); }
 
-            // Details
-            const resDetails = await fetch(`/api/wp/wcs/v1/user-details?user_id=${userId}`);
-            if (!resDetails.ok) throw new Error(`Details API Fail: ${resDetails.status}`);
-            const dataDetails = await resDetails.json();
-            console.log("DEBUG: Received User Details:", dataDetails);
-            if (dataDetails.billing) {
-                setAddresses(dataDetails.billing);
-                setFormData(dataDetails.billing); // Pre-fill form
+            // 3. Details (Critical for Addresses & Stats)
+            try {
+                const resDetails = await fetch(`/api/wp/wcs/v1/user-details?user_id=${userId}`);
+                if (resDetails.ok) {
+                    const dataDetails = await resDetails.json();
+                    console.log("DEBUG: Received User Details:", dataDetails);
+                    if (dataDetails.billing) {
+                        setAddresses(dataDetails.billing);
+                        setFormData(dataDetails.billing); // Pre-fill form
+                    }
+                    if (dataDetails.dashboard_stats) setStats(dataDetails.dashboard_stats);
+                } else {
+                    console.error("Details API Fail:", resDetails.status);
+                    setApiError(`Details API Fail: ${resDetails.status}`);
+                }
+            } catch (err) {
+                console.error("Details Fetch Err:", err);
+                setApiError("Critical Data Sync Error");
             }
-            if (dataDetails.dashboard_stats) setStats(dataDetails.dashboard_stats);
+
         } catch (error: any) {
-            console.error("ACCOUNT PAGE FETCH ERROR:", error);
+            console.error("ACCOUNT PAGE GLOBAL ERROR:", error);
             setApiError(error.message);
         }
         finally { setLoading(false); }

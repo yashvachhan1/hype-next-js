@@ -251,12 +251,72 @@ export default function Navbar() {
                     </div>
 
                     {/* Mobile Menu Toggle (Visible on small screens) */}
-                    <button className="lg:hidden text-gray-800" onClick={() => setIsMenuOpen(!isMenuOpen)}>
+                    <button className="lg:hidden text-gray-800 p-1 hover:bg-gray-100 rounded-lg transition" onClick={() => setIsMenuOpen(true)}>
                         <Menu className="w-7 h-7" />
                     </button>
 
                 </div>
             </div>
+
+            {/* Mobile Navigation Sidebar Drawer */}
+            {isMenuOpen && (
+                <div className="fixed inset-0 z-[100] lg:hidden">
+                    {/* Overlay */}
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={() => setIsMenuOpen(false)}></div>
+
+                    {/* Sidebar Content */}
+                    <div className="fixed inset-y-0 left-0 w-full max-w-xs bg-white shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out">
+                        <div className="flex items-center justify-between p-4 border-b">
+                            <img src="https://mediumturquoise-porcupine-409422.hostingersite.com/wp-content/uploads/2026/01/Group-2104-1-2.png" alt="Hype" className="h-8 w-auto" />
+                            <button className="p-2 text-gray-400 hover:text-black" onClick={() => setIsMenuOpen(false)}>
+                                <span className="text-2xl font-black">×</span>
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto px-4 py-6">
+                            {/* Main Links */}
+                            <div className="space-y-4 mb-8">
+                                <Link href="/category/new-arrivals" className="block text-sm font-black uppercase text-purple-700 hover:bg-purple-50 p-2 rounded" onClick={() => setIsMenuOpen(false)}>New Arrivals</Link>
+                                <Link href="/category/best-sellers" className="block text-sm font-black uppercase text-purple-700 hover:bg-purple-50 p-2 rounded" onClick={() => setIsMenuOpen(false)}>Best Sellers</Link>
+                            </div>
+
+                            {/* Category Menu */}
+                            <div className="mb-4 text-xs font-black text-gray-400 uppercase tracking-widest border-b pb-2">Categories</div>
+                            <div className="space-y-1">
+                                {MAIN_MENU_ITEMS.map((name) => {
+                                    const dynamicData = getDynamicData(name);
+                                    const slug = dynamicData ? dynamicData.slug : name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                                    return (
+                                        <div key={name} className="py-2">
+                                            <Link
+                                                href={`/category/${slug}`}
+                                                className="flex items-center justify-between text-sm font-bold text-gray-800 hover:text-purple-600"
+                                                onClick={() => setIsMenuOpen(false)}
+                                            >
+                                                {name}
+                                            </Link>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Footer Info */}
+                        <div className="p-4 bg-gray-50 border-t space-y-4">
+                            <a href="tel:18668189598" className="flex items-center gap-3">
+                                <Phone className="w-5 h-5 text-red-500" />
+                                <span className="text-xs font-bold text-gray-600">Support: 1 (866) 818-9598</span>
+                            </a>
+                            {user && (
+                                <button onClick={() => {
+                                    localStorage.removeItem('user');
+                                    window.location.href = '/';
+                                }} className="w-full text-center py-2 text-xs font-black text-red-500 border border-red-200 rounded">Sign Out</button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Mega Menu Bar - FIXED PARENTS, DYNAMIC CHILDREN */}
             <div className="hidden md:block relative bg-[#2d004b] text-white">

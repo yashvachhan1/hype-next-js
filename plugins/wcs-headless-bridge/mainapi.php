@@ -11,15 +11,20 @@
 add_action( 'rest_api_init', function() {
     // Override default WP REST CORS
     remove_filter( 'rest_pre_serve_request', 'rest_send_cors_headers' );
-    add_filter( 'rest_pre_serve_request', function( $value ) {
-        $origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '*';
-        header("Access-Control-Allow-Origin: $origin");
-        header("Access-Control-Allow-Credentials: true");
-        header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
-        header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-WP-Nonce, X-WC-Store-API-Nonce, Cart-Token, user_id");
-        header("Access-Control-Expose-Headers: Cart-Token, X-WP-Nonce");
+    add_filter( 'rest_pre_serve_request', function( $value, $result, $request, $server ) {
+        // Only apply custom headers to OUR routes to avoid breaking core WC
+        $route = $request->get_route();
+        if ( strpos($route, '/wcs/v1/') !== false && !headers_sent() ) {
+            $origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '*';
+            header("Access-Control-Allow-Origin: $origin");
+            header("Access-Control-Allow-Credentials: true");
+            header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
+            header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-WP-Nonce, X-WC-Store-API-Nonce, Cart-Token, user_id");
+            header("Access-Control-Expose-Headers: Cart-Token, X-WP-Nonce");
+        }
         return $value;
-    });
+    }, 10, 4);
+    // (Notice: We keep the priority 10 and accept 4 arguments for full context)
 
     // SETTINGS & PERFORMANCE
     @ini_set( 'memory_limit', '2048M' ); 
@@ -40,7 +45,9 @@ add_action( 'rest_api_init', function() {
         '/refunds' => 'wcs_get_user_refunds_safe',
         '/form' => 'wcs_get_form_data_safe',
         '/form/submit' => 'wcs_handle_form_submit_safe',
-        '/search' => 'wcs_turbo_search'
+        '/search' => 'wcs_turbo_search',
+        '/cart' => 'wcs_cart_handler_safe',
+        '/wishlist' => 'wcs_wishlist_handler_safe'
     );
 
     foreach ( $routes as $route => $callback ) {
@@ -67,14 +74,15 @@ if ( ! function_exists( 'wcs_shutdown_handler_safe' ) ) {
     function wcs_shutdown_handler_safe() {
         $error = error_get_last();
         if ( $error && in_array( $error['type'], array( E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR ) ) ) {
-            if ( ob_get_length() ) ob_clean();
+            if ( ob_get_level() > 0 ) ob_clean();
             header( 'Content-Type: application/json; charset=UTF-8' );
             http_response_code( 500 );
-            echo json_encode( array( 
+            $response = array( 
                 'success' => false,
                 'message' => 'The server encountered a fatal error.', 
-                'debug' => (defined('WP_DEBUG') && WP_DEBUG) ? ($error['message'] . ' on line ' . $error['line']) : 'Internal Server Error'
-            ));
+                'debug' => $error['message'] . ' on line ' . $error['line'] . ' in ' . $error['file']
+            );
+            echo json_encode( $response );
             exit;
         }
     }
@@ -143,15 +151,18 @@ if ( ! function_exists( 'wcs_get_user_orders_safe' ) ) {
 
             $data = array();
             foreach($orders as $order) {
+                if ( !($order instanceof WC_Order) ) continue;
                 $items = array();
                 foreach ( $order->get_items() as $item_id => $item ) {
+                    if ( !method_exists($item, 'get_product') ) continue;
                     $product = $item->get_product();
                     $img = ( $product && method_exists($product, 'get_image_id') ) ? wp_get_attachment_image_url($product->get_image_id(), 'thumbnail') : '';
+                    $item_total = method_exists($item, 'get_total') ? $item->get_total() : '0.00';
                     $items[] = array(
                         'id' => $item_id,
-                        'name' => $item->get_name(),
-                        'quantity' => $item->get_quantity(),
-                        'total' => wc_price($item->get_total()),
+                        'name' => method_exists($item, 'get_name') ? $item->get_name() : 'Unknown Item',
+                        'quantity' => method_exists($item, 'get_quantity') ? $item->get_quantity() : 1,
+                        'total' => '$' . number_format((float)$item_total, 2), // Safe fallback for wc_price
                         'image' => $img
                     );
                 }
@@ -161,15 +172,17 @@ if ( ! function_exists( 'wcs_get_user_orders_safe' ) ) {
                     'order_number' => $order->get_id(),
                     'date' => $order->get_date_created() ? $order->get_date_created()->date('M j, Y') : '',
                     'status' => ucfirst($order->get_status()),
-                    'total' => $order->get_formatted_order_total(),
+                    'total' => method_exists($order, 'get_formatted_order_total') ? $order->get_formatted_order_total() : '0.00',
                     'items_count' => $order->get_item_count(),
                     'line_items' => $items,
-                    'shipping_address' => $order->get_formatted_shipping_address()
+                    'shipping_address' => method_exists($order, 'get_formatted_shipping_address') ? $order->get_formatted_shipping_address() : ''
                 );
             }
             return new WP_REST_Response( array( 'orders' => $data ), 200 );
-        } catch ( \Exception $e ) {
-            return new WP_REST_Response( array( 'error' => $e->getMessage() ), 500 );
+        } catch ( \Throwable $e ) {
+            // Log for server-side debugging
+            error_log('WCS API ERROR [Orders]: ' . $e->getMessage());
+            return new WP_REST_Response( array( 'error' => $e->getMessage(), 'trace' => $e->getFile() . ' L' . $e->getLine() ), 500 );
         }
     }
 }
@@ -202,15 +215,15 @@ if ( ! function_exists( 'wcs_get_user_refunds_safe' ) ) {
                 $data[] = array(
                     'id' => '#' . $refund->get_id(),
                     'date' => $refund->get_date_created() ? $refund->get_date_created()->date('M j, Y') : '',
-                    'amount' => wc_price( $refund->get_amount() ),
-                    'reason' => $refund->get_reason() ?: 'Refund Request',
+                    'amount' => method_exists($refund, 'get_amount') ? '$' . number_format((float)$refund->get_amount(), 2) : '$0.00',
+                    'reason' => method_exists($refund, 'get_reason') ? ($refund->get_reason() ?: 'Refund Request') : 'Refund Request',
                     'order_id' => '#' . $parent_order->get_id(),
                     'status' => 'Processed'
                 );
             }
             return new WP_REST_Response( array( 'refunds' => $data ), 200 );
-        } catch ( \Exception $e ) {
-            return new WP_REST_Response( array( 'refunds' => [] ), 200 );
+        } catch ( \Throwable $e ) {
+            return new WP_REST_Response( array( 'refunds' => [], 'error' => $e->getMessage() ), 200 ); // Returning 200 with empty array to avoid breaking UI
         }
     }
 }
@@ -222,11 +235,11 @@ if ( ! function_exists( 'wcs_get_user_details_safe' ) ) {
             if ( !$user_id ) return new WP_REST_Response( [], 400 );
 
             $u = get_userdata($user_id);
-            if ( !$u ) return new WP_REST_Response( [], 404 );
+            if ( !$u || !($u instanceof WP_User) ) return new WP_REST_Response( array('error' => 'User not found or invalid'), 404 );
 
             $data = array(
                 'billing' => array(
-                    'first_name' => get_user_meta($user_id, 'billing_first_name', true) ?: $u->first_name ?: $u->display_name,
+                    'first_name' => get_user_meta($user_id, 'billing_first_name', true) ?: (isset($u->first_name) ? $u->first_name : (isset($u->display_name) ? $u->display_name : '')),
                     'last_name' => get_user_meta($user_id, 'billing_last_name', true) ?: $u->last_name,
                     'company' => get_user_meta($user_id, 'billing_company', true),
                     'address_1' => get_user_meta($user_id, 'billing_address_1', true),
@@ -237,38 +250,42 @@ if ( ! function_exists( 'wcs_get_user_details_safe' ) ) {
                     'email' => $u->user_email,
                     'phone' => get_user_meta($user_id, 'billing_phone', true),
                 ),
-                'role' => reset( $u->roles ), // ADDED ROLE
+                'role' => ( !empty($u->roles) && is_array($u->roles) ) ? reset( $u->roles ) : 'customer',
                 'dashboard_stats' => array(
                     'total_orders' => function_exists('wc_get_customer_order_count') ? wc_get_customer_order_count($user_id) : 0,
-                    'total_spent' => function_exists('wc_get_customer_total_spent') ? wc_get_customer_total_spent($user_id) : 0
+                    'total_spent' => function_exists('wc_get_customer_total_spent') ? (float)wc_get_customer_total_spent($user_id) : 0
                 )
             );
             return new WP_REST_Response( $data, 200 );
-        } catch ( \Exception $e ) {
-            return new WP_REST_Response( array('error' => $e->getMessage()), 500 );
+        } catch ( \Throwable $e ) {
+            return new WP_REST_Response( array('error' => $e->getMessage(), 'trace' => $e->getFile() . ' L' . $e->getLine()), 500 );
         }
     }
 }
 
 if ( ! function_exists( 'wcs_get_brands_safe' ) ) {
     function wcs_get_brands_safe( $request ) {
-        $cat_slug = $request->get_param( 'category' );
-        @set_time_limit( 600 );
-        $args = array(
-            'taxonomy' => 'pwb-brand',
-            'hide_empty' => true,
-            'number' => 100,
-            'orderby' => 'count',
-            'order' => 'DESC'
-        );
-        $terms = get_terms( $args );
-        $brands = array();
-        if ( !is_wp_error($terms) ) {
-            foreach($terms as $t) {
-                $brands[] = array( 'id' => $t->term_id, 'name' => $t->name, 'slug' => $t->slug, 'count' => $t->count );
+        try {
+            $cat_slug = $request->get_param( 'category' );
+            @set_time_limit( 600 );
+            $args = array(
+                'taxonomy' => 'pwb-brand',
+                'hide_empty' => true,
+                'number' => 100,
+                'orderby' => 'count',
+                'order' => 'DESC'
+            );
+            $terms = get_terms( $args );
+            $brands = array();
+            if ( !is_wp_error($terms) ) {
+                foreach($terms as $t) {
+                    $brands[] = array( 'id' => $t->term_id, 'name' => $t->name, 'slug' => $t->slug, 'count' => $t->count );
+                }
             }
+            return new WP_REST_Response( array( 'brands' => $brands ), 200 );
+        } catch ( \Throwable $e ) {
+            return new WP_REST_Response( array('error' => $e->getMessage()), 500 );
         }
-        return new WP_REST_Response( array( 'brands' => $brands ), 200 );
     }
 }
 
@@ -724,16 +741,9 @@ if ( ! function_exists( 'wcs_get_api_logo' ) ) {
 
 if ( ! function_exists( 'wcs_get_headless_data_safe' ) ) {
     function wcs_get_headless_data_safe() {
-        // 1. CACHE (Version 8 - Ultra Fast + Wholesale Rules)
+        // 1. CACHE (Version 8 - Fast Return)
         $cached_data = get_transient( 'wcs_headless_app_data_v8' );
         if ( false !== $cached_data ) {
-            // ETAG SUPPORT FOR SPEED
-            $etag = md5( json_encode( $cached_data ) );
-            if ( isset( $_SERVER['HTTP_IF_NONE_MATCH'] ) && trim( $_SERVER['HTTP_IF_NONE_MATCH'] ) === $etag ) {
-                header( "HTTP/1.1 304 Not Modified" );
-                exit;
-            }
-            header( "ETag: $etag" );
             return new WP_REST_Response( $cached_data, 200 );
         }
 
@@ -742,34 +752,31 @@ if ( ! function_exists( 'wcs_get_headless_data_safe' ) ) {
         try {
 
         // 2. MENU (Optimized)
-        $order = array('DEVICES', 'E-JUICES', 'COILS / PODS', 'DISPOSABLES', 'HEMP', 'NICOTINE POUCHES', 'SMOKESHOP', 'VAPE DEALS', 'KRATOM/ MASHROOM', 'BRANDS');
-        $menu = array();
-
-        // 2. MENU (Reverted to Direct Lookups for Speed)
-        // fetching 500+ categories was too slow. Specific lookups are faster for small menus.
-        foreach ( $order as $cat_name ) {
-            if ( $cat_name === 'BRANDS' || $cat_name === 'VAPE DEALS' ) {
-                $menu[] = array( 'id' => rand(9000,9999), 'name' => $cat_name, 'type' => 'link', 'children' => array() );
-                continue;
-            }
-
-            $term = get_term_by( 'name', $cat_name, 'product_cat' );
-            if ( ! $term ) continue;
-
-            $children_terms = get_terms( array( 'taxonomy' => 'product_cat', 'parent' => $term->term_id, 'hide_empty' => true ) );
-            $level2 = array();
-
-            if ( !is_wp_error($children_terms) ) {
-                foreach ( $children_terms as $child ) {
-                    $level2[] = array( 'id' => $child->term_id, 'name' => $child->name, 'slug' => $child->slug, 'children' => [] );
+        // 2. MENU (Optimized with separate transient)
+        $menu = get_transient('wcs_menu_structure_v1');
+        if (false === $menu) {
+            $order = array('DEVICES', 'E-JUICES', 'COILS / PODS', 'DISPOSABLES', 'HEMP', 'NICOTINE POUCHES', 'SMOKESHOP', 'VAPE DEALS', 'KRATOM/ MASHROOM', 'BRANDS');
+            $menu = array();
+            foreach ( $order as $cat_name ) {
+                if ( $cat_name === 'BRANDS' || $cat_name === 'VAPE DEALS' ) {
+                    $menu[] = array( 'id' => rand(9000,9999), 'name' => $cat_name, 'type' => 'link', 'children' => array() );
+                    continue;
                 }
+                $term = get_term_by( 'name', $cat_name, 'product_cat' );
+                if ( ! $term ) continue;
+                $children_terms = get_terms( array( 'taxonomy' => 'product_cat', 'parent' => $term->term_id, 'hide_empty' => true ) );
+                $level2 = array();
+                if ( !is_wp_error($children_terms) ) {
+                    foreach ( $children_terms as $child ) {
+                        $level2[] = array( 'id' => $child->term_id, 'name' => $child->name, 'slug' => $child->slug, 'children' => [] );
+                    }
+                }
+                if ( $cat_name === 'HEMP' ) {
+                    $level2[] = array( 'id' => 8888, 'name' => 'COA', 'slug' => 'coa', 'type' => 'custom', 'children' => array() );
+                }
+                $menu[] = array( 'id' => $term->term_id, 'name' => $term->name, 'slug' => $term->slug, 'type' => 'category', 'children' => $level2 );
             }
-
-            if ( $cat_name === 'HEMP' ) {
-                $level2[] = array( 'id' => 8888, 'name' => 'COA', 'slug' => 'coa', 'type' => 'custom', 'children' => array() );
-            }
-
-            $menu[] = array( 'id' => $term->term_id, 'name' => $term->name, 'slug' => $term->slug, 'type' => 'category', 'children' => $level2 );
+            set_transient('wcs_menu_structure_v1', $menu, HOUR_IN_SECONDS * 12); // Long cache for menu
         }
 
         // 3. SECURED & CACHED PRODUCT LISTS (Trending, New, Best Sellers)
@@ -865,8 +872,9 @@ if ( !function_exists('wcs_format_product_light') ) {
         $img_url = $img_id ? wp_get_attachment_image_url($img_id, 'full') : '';
         
         $brand_name = '';
+        $brand_name = '';
         $brand_terms = get_the_terms($p_id, 'pwb-brand');
-        if ($brand_terms && !is_wp_error($brand_terms)) {
+        if ($brand_terms && !is_wp_error($brand_terms) && !empty($brand_terms)) {
             $brand_name = $brand_terms[0]->name;
         }
 
@@ -1090,7 +1098,7 @@ if ( ! function_exists( 'wcs_get_headless_products_list_safe' ) ) {
         global $wpdb;
 
         $sql = "
-            SELECT 
+            SELECT DISTINCT
                 p.ID, p.post_title, p.post_name,
                 pm_price.meta_value as price,
                 pm_reg.meta_value as regular_price,
@@ -1131,5 +1139,71 @@ if ( ! function_exists( 'wcs_get_headless_products_list_safe' ) ) {
             );
         }
         return $data;
+    }
+}
+
+// 12. CART & WISHLIST HANDLERS (CONSOLIDATED)
+if ( ! function_exists( 'wcs_cart_handler_safe' ) ) {
+    function wcs_cart_handler_safe( $request ) {
+        try {
+            if ( ! function_exists( 'WC' ) ) return new WP_REST_Response( array('error' => 'WC Missing'), 500 );
+            
+            // Fix for REST initialization
+            if ( is_null( WC()->cart ) ) {
+                wc_load_cart();
+            }
+
+            $method = $request->get_method();
+            if ( $method === 'GET' ) {
+                $items = array();
+                foreach ( WC()->cart->get_cart() as $key => $val ) {
+                    $p = $val['data'];
+                    if (!$p) continue;
+                    $items[] = array(
+                        'key' => $key,
+                        'id' => $p->get_id(),
+                        'name' => $p->get_name(),
+                        'qty' => $val['quantity'],
+                        'price' => $p->get_price(),
+                        'image' => wp_get_attachment_image_url($p->get_image_id(), 'thumbnail')
+                    );
+                }
+                return new WP_REST_Response( array( 
+                    'items' => $items, 
+                    'count' => WC()->cart->get_cart_contents_count(),
+                    'total' => WC()->cart->get_total()
+                ), 200 );
+            }
+        } catch ( \Throwable $e ) {
+            return new WP_REST_Response( array('error' => $e->getMessage()), 500 );
+        }
+        return new WP_REST_Response( array('success' => true), 200 );
+    }
+}
+
+if ( ! function_exists( 'wcs_wishlist_handler_safe' ) ) {
+    function wcs_wishlist_handler_safe( $request ) {
+        try {
+            $user_id = intval( $request->get_param('user_id') );
+            if ( !$user_id ) return new WP_REST_Response( array('wishlist' => []), 200 );
+
+            $method = $request->get_method();
+            $wishlist = get_user_meta( $user_id, 'wcs_wishlist_ids', true ) ?: array();
+            if ( !is_array($wishlist) ) $wishlist = array();
+
+            if ( $method === 'POST' ) {
+                $product_id = intval( $request->get_param('product_id') );
+                if ( in_array( $product_id, $wishlist ) ) {
+                    $wishlist = array_diff( $wishlist, array( $product_id ) );
+                } else {
+                    $wishlist[] = $product_id;
+                }
+                update_user_meta( $user_id, 'wcs_wishlist_ids', array_values($wishlist) );
+            }
+
+            return new WP_REST_Response( array( 'wishlist' => array_values($wishlist) ), 200 );
+        } catch ( \Throwable $e ) {
+            return new WP_REST_Response( array('error' => $e->getMessage()), 500 );
+        }
     }
 }
