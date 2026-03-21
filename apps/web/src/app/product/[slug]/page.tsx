@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ShoppingCart, Heart, Check, ChevronRight, User } from 'lucide-react';
 import Navbar from '@/components/Navbar';
-import ProductCard from '@/components/ProductCard';
+import WpProductCard from '@/components/WpProductCard';
 import { useCart } from '@/context/CartContext';
 import AddToCartModal from '@/components/AddToCartModal';
 
@@ -320,20 +320,6 @@ export default function ProductPage() {
                                         <ShoppingCart size={20} />
                                         Add to Order
                                     </button>
-
-                                    {/* Wishlist */}
-                                    <button className="h-14 w-14 border border-gray-200 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 hover:border-red-100 transition">
-                                        <Heart size={24} />
-                                    </button>
-                                </div>
-                            )}
-
-                            {/* Wishlist Mobile */}
-                            {user && (
-                                <div className="sm:hidden mb-8">
-                                    <button className="w-full h-12 border border-gray-200 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 transition gap-2 text-sm font-bold">
-                                        <Heart size={20} /> Add to Wishlist
-                                    </button>
                                 </div>
                             )}
                         </>
@@ -357,15 +343,17 @@ export default function ProductPage() {
 
             {/* Related Products */}
             {product.related_products && product.related_products.length > 0 && (
-                <div className="container mx-auto px-6 mt-16 mb-12">
-                    <div className="flex items-center gap-4 mb-8">
-                        <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Related Products</h2>
-                        <div className="flex-1 h-px bg-gray-200"></div>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                        {product.related_products.map((rp: any) => (
-                            <ProductCard key={rp.id} p={rp} user={user} />
-                        ))}
+                <div className="container mx-auto px-4 mt-16 mb-12">
+                    <div className="wcs-rounded-grid-wrap">
+                        <div className="wcs-section-header" style={{ marginBottom: '20px' }}>
+                            <h2 className="text-2xl md:text-4xl font-black text-[#111] text-center uppercase tracking-tight">Related Products</h2>
+                            <div style={{ width: '50px', height: '5px', background: '#A101F6', margin: '15px auto 0', borderRadius: '10px' }}></div>
+                        </div>
+                        <div className="wcs-rounded-grid">
+                            {product.related_products.map((rp: any) => (
+                                <WpProductCard key={rp.id} p={rp} user={user} />
+                            ))}
+                        </div>
                     </div>
                 </div>
             )}

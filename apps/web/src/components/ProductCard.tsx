@@ -23,10 +23,6 @@ export default function ProductCard({ p, user }: { p: any, user: any }) {
                     ))}
                 </div>
 
-                {/* Wishlist Icon */}
-                <button className="absolute right-3 top-3 w-8 h-8 rounded-full bg-white/80 backdrop-blur-sm shadow-md flex items-center justify-center text-gray-400 hover:text-purple-600 transition-colors">
-                    <Heart size={14} />
-                </button>
             </div>
 
             {/* Content Area */}

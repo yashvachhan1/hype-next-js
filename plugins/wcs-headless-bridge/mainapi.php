@@ -414,14 +414,13 @@ if ( ! function_exists( 'wcs_get_products_safe' ) ) {
                     pm_price.meta_value as price, 
                     pm_reg.meta_value as regular_price,
                     pm_whole.meta_value as wholesale_price,
-                    pm_img.meta_value as image_id
+                    pm_thumb.meta_value as thumbnail_id
                     FROM {$wpdb->posts} p ";
             
             $sql .= " LEFT JOIN {$wpdb->postmeta} pm_price ON (p.ID = pm_price.post_id AND pm_price.meta_key = '_price') ";
             $sql .= " LEFT JOIN {$wpdb->postmeta} pm_reg ON (p.ID = pm_reg.post_id AND pm_reg.meta_key = '_regular_price') ";
             $sql .= " LEFT JOIN {$wpdb->postmeta} pm_whole ON (p.ID = pm_whole.post_id AND pm_whole.meta_key = 'wholesale_customer_wholesale_price') "; // JOIN WHOLESALE
             $sql .= " LEFT JOIN {$wpdb->postmeta} pm_thumb ON (p.ID = pm_thumb.post_id AND pm_thumb.meta_key = '_thumbnail_id') ";
-            $sql .= " LEFT JOIN {$wpdb->postmeta} pm_img ON (pm_thumb.meta_value = pm_img.post_id AND pm_img.meta_key = '_wp_attached_file') ";
 
             $where_clauses = array();
             $where_clauses[] = "p.post_type = 'product'";
@@ -527,12 +526,10 @@ if ( ! function_exists( 'wcs_get_products_safe' ) ) {
                     $price_html = $rp->price ? '<span class="amount">$' . $rp->price . '</span>' : '';
                     
                     $img_url = '';
-                    if ( $rp->image_id ) {
-                        if (strpos($rp->image_id, 'http') === 0) {
-                            $img_url = $rp->image_id;
-                        } else {
-                            $img_url = $base_url . '/' . $rp->image_id;
-                        }
+                    if ( !empty($rp->thumbnail_id) ) {
+                        $img_url = wp_get_attachment_image_url( $rp->thumbnail_id, 'medium' ) ?: 'https://placehold.co/400x400/png?text=No+Image';
+                    } else {
+                        $img_url = 'https://placehold.co/400x400/png?text=No+Image';
                     }
 
                     $products[] = array(
@@ -675,14 +672,13 @@ if ( ! function_exists( 'wcs_turbo_search' ) ) {
         SELECT DISTINCT p.ID, p.post_title, p.post_name,
         pm_price.meta_value as price,
         pm_reg.meta_value as regular_price,
-        pm_img_file.meta_value as image_file
+        pm_thumb.meta_value as thumbnail_id
         FROM {$wpdb->posts} p
         LEFT JOIN {$wpdb->postmeta} pm_sku ON (p.ID = pm_sku.post_id AND pm_sku.meta_key = '_sku')
         LEFT JOIN {$wpdb->postmeta} pm_price ON (p.ID = pm_price.post_id AND pm_price.meta_key = '_price')
         LEFT JOIN {$wpdb->postmeta} pm_reg ON (p.ID = pm_reg.post_id AND pm_reg.meta_key = '_regular_price')
         -- Image Join
         LEFT JOIN {$wpdb->postmeta} pm_thumb ON (p.ID = pm_thumb.post_id AND pm_thumb.meta_key = '_thumbnail_id')
-        LEFT JOIN {$wpdb->postmeta} pm_img_file ON (pm_thumb.meta_value = pm_img_file.post_id AND pm_img_file.meta_key = '_wp_attached_file')
         -- Brand Join (Optional)
         LEFT JOIN {$wpdb->term_relationships} tr ON (p.ID = tr.object_id)
         LEFT JOIN {$wpdb->term_taxonomy} tt ON (tr.term_taxonomy_id = tt.term_taxonomy_id AND tt.taxonomy = 'pwb-brand')
@@ -707,9 +703,8 @@ if ( ! function_exists( 'wcs_turbo_search' ) ) {
 
     foreach($results as $r) {
         $img = '';
-        if ( $r->image_file ) {
-            if ( strpos($r->image_file, 'http') === 0 ) $img = $r->image_file;
-            else $img = $upload_base . '/' . $r->image_file;
+        if ( !empty($r->thumbnail_id) ) {
+            $img = wp_get_attachment_image_url( $r->thumbnail_id, 'medium' ) ?: 'https://placehold.co/400x400/png?text=No+Image';
         }
 
         $data[] = array(
@@ -740,8 +735,8 @@ if ( ! function_exists( 'wcs_get_api_logo' ) ) {
 
 if ( ! function_exists( 'wcs_get_headless_data_safe' ) ) {
     function wcs_get_headless_data_safe() {
-        // 1. CACHE (Version 8 - Fast Return)
-        $cached_data = get_transient( 'wcs_headless_app_data_v8' );
+        // 1. CACHE (Version 10 - Fast Return)
+        $cached_data = get_transient( 'wcs_headless_app_data_v10' );
         if ( false !== $cached_data ) {
             return new WP_REST_Response( $cached_data, 200 );
         }
@@ -752,13 +747,35 @@ if ( ! function_exists( 'wcs_get_headless_data_safe' ) ) {
 
         // 2. MENU (Optimized)
         // 2. MENU (Optimized with separate transient)
-        $menu = get_transient('wcs_menu_structure_v1');
+        $menu = get_transient('wcs_menu_structure_v3');
         if (false === $menu) {
             $order = array('DEVICES', 'E-JUICES', 'COILS / PODS', 'DISPOSABLES', 'HEMP', 'NICOTINE POUCHES', 'SMOKESHOP', 'VAPE DEALS', 'KRATOM/ MASHROOM', 'BRANDS');
             $menu = array();
+
+            // GLOBAL FALLBACK RECENT PRODUCT
+            $global_recent_product = null;
+            $args_global = array('post_type' => 'product', 'posts_per_page' => 1, 'post_status' => 'publish', 'orderby' => 'date', 'order' => 'DESC');
+            $q_global = new WP_Query($args_global);
+            if (!empty($q_global->posts)) {
+                $rp_id = $q_global->posts[0]->ID;
+                $rp_obj = wc_get_product($rp_id);
+                if ($rp_obj) {
+                    $img_id = $rp_obj->get_image_id();
+                    $price_val = $rp_obj->get_price();
+                    if (!$price_val && $rp_obj->is_type('variable')) $price_val = $rp_obj->get_variation_price('min', true);
+                    $global_recent_product = array(
+                        'id' => $rp_id,
+                        'name' => $rp_obj->get_name(),
+                        'slug' => $rp_obj->get_slug(),
+                        'price' => '$' . number_format((float)$price_val, 2),
+                        'image' => $img_id ? wp_get_attachment_image_url($img_id, 'medium') : 'https://placehold.co/400x400/png?text=No+Image'
+                    );
+                }
+            }
+
             foreach ( $order as $cat_name ) {
                 if ( $cat_name === 'BRANDS' || $cat_name === 'VAPE DEALS' ) {
-                    $menu[] = array( 'id' => rand(9000,9999), 'name' => $cat_name, 'type' => 'link', 'children' => array() );
+                    $menu[] = array( 'id' => rand(9000,9999), 'name' => $cat_name, 'type' => 'link', 'children' => array(), 'recent_product' => $global_recent_product );
                     continue;
                 }
                 $term = get_term_by( 'name', $cat_name, 'product_cat' );
@@ -773,9 +790,51 @@ if ( ! function_exists( 'wcs_get_headless_data_safe' ) ) {
                 if ( $cat_name === 'HEMP' ) {
                     $level2[] = array( 'id' => 8888, 'name' => 'COA', 'slug' => 'coa', 'type' => 'custom', 'children' => array() );
                 }
-                $menu[] = array( 'id' => $term->term_id, 'name' => $term->name, 'slug' => $term->slug, 'type' => 'category', 'children' => $level2 );
+                
+                // Fetch the latest product for this category
+                $recent_product = null;
+                $args_latest = array(
+                    'post_type' => 'product',
+                    'posts_per_page' => 1,
+                    'post_status' => 'publish',
+                    'orderby' => 'date',
+                    'order' => 'DESC',
+                    'tax_query' => array(
+                        array(
+                            'taxonomy' => 'product_cat',
+                            'field'    => 'term_id',
+                            'terms'    => $term->term_id,
+                            'include_children' => true
+                        )
+                    )
+                );
+                $q_latest = new WP_Query($args_latest);
+                if ( !empty($q_latest->posts) ) {
+                    $rp_id = $q_latest->posts[0]->ID;
+                    $rp_obj = wc_get_product($rp_id);
+                    if ($rp_obj) {
+                        $img_id = $rp_obj->get_image_id();
+                        $img_url = $img_id ? wp_get_attachment_image_url($img_id, 'medium') : 'https://placehold.co/400x400/png?text=No+Image';
+                        $price_val = $rp_obj->get_price();
+                        if ( ! $price_val && $rp_obj->is_type('variable') ) $price_val = $rp_obj->get_variation_price( 'min', true );
+                        
+                        $recent_product = array(
+                            'id' => $rp_id,
+                            'name' => $rp_obj->get_name(),
+                            'slug' => $rp_obj->get_slug(),
+                            'price' => '$' . number_format((float)$price_val, 2),
+                            'image' => $img_url
+                        );
+                    }
+                }
+
+                if (!$recent_product && $global_recent_product) {
+                    $recent_product = $global_recent_product;
+                }
+
+                $menu[] = array( 'id' => $term->term_id, 'name' => $term->name, 'slug' => $term->slug, 'type' => 'category', 'children' => $level2, 'recent_product' => $recent_product );
             }
-            set_transient('wcs_menu_structure_v1', $menu, HOUR_IN_SECONDS * 12); // Long cache for menu
+            set_transient('wcs_menu_structure_v3', $menu, HOUR_IN_SECONDS * 12); // Long cache for menu
         }
 
         // 3. SECURED & CACHED PRODUCT LISTS (Trending, New, Best Sellers)
@@ -851,7 +910,7 @@ if ( ! function_exists( 'wcs_get_headless_data_safe' ) ) {
             'best_sellers' => $best_sellers
         );
 
-        set_transient( 'wcs_headless_app_data_v8', $final_data, HOUR_IN_SECONDS );
+        set_transient( 'wcs_headless_app_data_v10', $final_data, HOUR_IN_SECONDS );
 
         return new WP_REST_Response( $final_data, 200 );
             

@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Search, ShoppingCart, User, Menu, Heart, Phone, MessageCircle, ChevronDown } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
-import { useWishlist } from '@/context/WishlistContext';
 import CartSidebar from '@/components/CartSidebar';
 
 import { fetchMenu } from '@/api/menu';
@@ -18,9 +17,7 @@ const MAIN_MENU_ITEMS = [
     'Hemp',
     'Nicotine Pouches',
     'Smokeshop',
-    'Vape Deals',
-    'Kratom/ Mashroom',
-    'Brands'
+    'Kratom/ Mashroom'
 ];
 
 export default function Navbar() {
@@ -33,7 +30,6 @@ export default function Navbar() {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isCartOpen, setIsCartOpen] = useState(false);
     const { cartCount } = useCart();
-    const { wishlist } = useWishlist();
 
     useEffect(() => {
         const body = document.body;
@@ -219,13 +215,7 @@ export default function Navbar() {
                 {/* 5. Icons */}
                 <div className="flex items-center gap-5">
 
-                    {/* Wishlist */}
-                    <Link href="/wishlist" className="relative group text-[#8b00ff] hover:text-[#7000cc] transition">
-                        <Heart className="w-7 h-7" strokeWidth={2.5} />
-                        {wishlist.length > 0 && (
-                            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold shadow-md border-2 border-white">{wishlist.length}</span>
-                        )}
-                    </Link>
+                    {/* Wishlist Removed */}
 
                     {/* User */}
                     <div className="relative group z-50">
@@ -245,7 +235,6 @@ export default function Navbar() {
                                     </div>
                                     <Link href="/account" className="block px-4 py-2 text-sm font-medium text-gray-700 hover:bg-purple-50 hover:text-purple-700">Dashboard</Link>
                                     <Link href="/account?tab=orders" className="block px-4 py-2 text-sm font-medium text-gray-700 hover:bg-purple-50 hover:text-purple-700">My Orders</Link>
-                                    <Link href="/wishlist" className="block px-4 py-2 text-sm font-medium text-gray-700 hover:bg-purple-50 hover:text-purple-700">My Wishlist</Link>
                                     <div className="border-t border-gray-50 mt-1">
                                         <button onClick={() => {
                                             localStorage.removeItem('user');
@@ -388,20 +377,24 @@ export default function Navbar() {
                                                         </div>
                                                     </div>
 
-                                                    {/* 2. Trending Section */}
-                                                    <div className="w-72 bg-gray-50 p-6 flex flex-col justify-center">
-                                                        <div className="mb-4 flex items-center gap-2">
-                                                            <span className="text-xs font-black text-purple-700 uppercase tracking-wide">Trending</span>
-                                                            <div className="h-px bg-purple-200 flex-1"></div>
-                                                        </div>
-                                                        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer">
-                                                            <img src="https://mediumturquoise-porcupine-409422.hostingersite.com/wp-content/uploads/2026/01/1st-5.jpg" className="w-full h-32 object-contain mb-3" />
-                                                            <div className="text-center">
-                                                                <h4 className="font-bold text-gray-900 text-sm mb-1">Geek Bar Pulse 15k</h4>
-                                                                <span className="text-purple-600 font-extrabold">$14.99</span>
+                                                    {/* 2. Trending Section (Dynamic Recent) */}
+                                                    {dynamicData?.recent_product && (
+                                                        <div className="w-72 bg-gray-50 p-6 flex flex-col justify-center">
+                                                            <div className="mb-4 flex items-center gap-2">
+                                                                <span className="text-xs font-black text-purple-700 uppercase tracking-wide">Recently Added</span>
+                                                                <div className="h-px bg-purple-200 flex-1"></div>
                                                             </div>
+                                                            <Link href={`/product/${dynamicData.recent_product.slug}`} className="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition block overflow-hidden group">
+                                                                <div className="w-full h-40 overflow-hidden bg-gray-50 flex items-center justify-center">
+                                                                    <img src={dynamicData.recent_product.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt={dynamicData.recent_product.name} />
+                                                                </div>
+                                                                <div className="p-4 text-center">
+                                                                    <h4 className="font-bold text-gray-900 text-sm mb-1 group-hover:text-purple-600 transition-colors line-clamp-2 min-h-[40px] leading-snug">{dynamicData.recent_product.name}</h4>
+                                                                    <span className="text-purple-600 font-extrabold">{dynamicData.recent_product.price}</span>
+                                                                </div>
+                                                            </Link>
                                                         </div>
-                                                    </div>
+                                                    )}
 
                                                 </div>
                                             </div>

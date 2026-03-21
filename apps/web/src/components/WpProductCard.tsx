@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { Heart, ShoppingBag } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
-import { useWishlist } from '@/context/WishlistContext';
 
 // EXACT CSS FROM WORDPRESS (Sanitized for React)
 const WP_STYLES = `
@@ -11,6 +10,7 @@ const WP_STYLES = `
         grid-template-columns: repeat(2, 1fr) !important; 
         gap: 12px !important; 
         padding: 0 10px !important;
+        align-content: start !important;
     }
 
     @media (min-width: 768px) {
@@ -72,26 +72,6 @@ const WP_STYLES = `
     .wcs-rounded-card:hover .wcs-hover-img { opacity: 1; }
     .wcs-rounded-card:hover .wcs-main-img { opacity: 0; }
 
-    /* Wishlist Heart Overlay */
-    .wcs-rc-wishlist {
-        position: absolute;
-        top: 15px;
-        right: 15px;
-        z-index: 10;
-        background: rgba(255,255,255,0.9);
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        border: none;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    .wcs-rc-wishlist:hover { transform: scale(1.1); background: #fff; }
-    .wcs-rc-wishlist.active { color: #ff3b3b; }
 
     /* Content Area with Padding */
     .wcs-rc-content { padding: 25px 20px 25px 20px; flex: 1; display: flex; flex-direction: column; align-items: center; }
@@ -137,14 +117,12 @@ const WP_STYLES = `
         .wcs-rc-price-box { margin-bottom: 12px; min-height: 20px; }
         .wcs-rc-content { padding: 12px 10px; }
         .wcs-rc-btn { font-size: 9px; padding: 10px 0; border-radius: 8px; font-weight: 700; }
-        .wcs-rc-wishlist { width: 28px; height: 28px; top: 10px; right: 10px; }
         .wcs-rc-actions { gap: 4px; }
     }
 `;
 
 export default function WpProductCard({ p, user }: { p: any, user: any }) {
     const { addToCart } = useCart();
-    const { toggleWishlist, isInWishlist } = useWishlist();
 
     const imageSrc = p.image || 'https://placehold.co/400x400/png?text=No+Image';
     const hoverImageSrc = (p.gallery && p.gallery.length > 0) ? p.gallery[0] : imageSrc;
@@ -168,14 +146,6 @@ export default function WpProductCard({ p, user }: { p: any, user: any }) {
             <style jsx global>{WP_STYLES}</style>
 
             <div className="wcs-rounded-card">
-                {/* Wishlist Overlay */}
-                <button
-                    className={`wcs-rc-wishlist ${isInWishlist(p.id) ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); toggleWishlist(p.id); }}
-                >
-                    <Heart size={18} fill={isInWishlist(p.id) ? "currentColor" : "none"} />
-                </button>
-
                 <div className="wcs-rc-media">
                     <Link href={`/product/${p.slug}`} className="wcs-rc-img-link">
                         <img src={imageSrc} className="wcs-main-img" alt={p.name} />
